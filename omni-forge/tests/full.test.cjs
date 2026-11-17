@@ -18,7 +18,7 @@ function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect } =
     constructor(owner, runId) { this.runId = runId; env.opened.push(runId); }
     load() {}
   }
-  const { FullView } = load(["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/locate.js", "views/full.js"], {
+  const { FullView } = load(["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/locate.js", "views/ui.js", "views/repo.js", "views/full.js"], {
     InputState: { new: () => ({ on() {}, value: () => "", set_value() {} }) },
     exec: () => {},
     focused: () => env.focus,
@@ -110,4 +110,36 @@ test("visible for its own tab, not for another tab", () => {
   assert.equal(view.visible(), true);
   env.focus = focusOn("pa", "A");
   assert.equal(view.visible(), false);
+});
+
+test("shared open: taken (and cleared) in the tick only while visible, never in render", async () => {
+  const { view, env, cx, settle } = setup({ focus: focusOn("pb", "A") });
+  view.follow(cx);
+  await settle();
+  assert.equal(view.repo.path, "o/repo-b");
+  env.shared["omni-forge.open"] = '["github","github.com","o/repo-b","55"]';
+  view.tick(cx); // focus is on tab A: not visible, the key waits
+  assert.equal(env.shared["omni-forge.open"], '["github","github.com","o/repo-b","55"]');
+  assert.deepEqual(env.opened, []);
+  env.focus = focusOn("pf", "F");
+  view.tick(cx);
+  await settle();
+  assert.equal(env.shared["omni-forge.open"], null);
+  assert.deepEqual(env.opened, ["55"]);
+  assert.equal(view.loc.cwd, "/w/repo-b"); // same repo: the location stays
+  view.tick(cx);
+  assert.deepEqual(env.opened, ["55"]);
+});
+
+test("shared open for another repo switches to it", async () => {
+  const { view, env, cx, settle } = setup({ focus: focusOn("pb", "A") });
+  view.follow(cx);
+  await settle();
+  env.focus = focusOn("pf", "F");
+  env.shared["omni-forge.open"] = '["gitlab","gl.test","g/p","9"]';
+  view.tick(cx);
+  await settle();
+  assert.deepEqual({ ...view.repo }, { kind: "gitlab", host: "gl.test", path: "g/p" });
+  assert.deepEqual(env.opened, ["9"]);
+  assert.deepEqual(env.detects, ["/w/repo-b"]);
 });

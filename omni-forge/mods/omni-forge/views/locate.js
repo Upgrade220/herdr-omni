@@ -7,6 +7,8 @@
 
 export const MOD = "omni-forge";
 export const LAST_LOC = "omni-forge.last-loc";
+// A watch key the side view leaves for a full tab it just selected; the full view takes it in its tick.
+export const OPEN = "omni-forge.open";
 
 // props.open is a watch key: JSON [kind, host, path, runId].
 export function parseOpen(value) {
@@ -30,6 +32,13 @@ export function fullTabs(panes) {
     byTab.set(p.tab, e);
   }
   return [...byTab].filter(([, e]) => e.mod > 0 && e.other === 0).map(([id]) => id);
+}
+
+// The full tabs of one space (the side view opens runs in the first of them), in tab order.
+export function spaceFullTabs(panes, spaces, spaceId) {
+  const tabs = (spaces ?? []).find((s) => s.id === spaceId)?.tabs ?? [];
+  const full = new Set(fullTabs(panes));
+  return tabs.map((t) => t.id).filter((id) => full.has(id));
 }
 
 // Full is visible when the focused tab is a full tab. panes() carries no props, so with several

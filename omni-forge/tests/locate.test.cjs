@@ -2,7 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { load } = require("./load.cjs");
 const L = load(["views/locate.js"]);
-const { parseOpen, fullTabs, isVisible, terminalLoc, nextLoc, lastLocUpdate } = L;
+const { parseOpen, fullTabs, spaceFullTabs, isVisible, terminalLoc, nextLoc, lastLocUpdate } = L;
 const plain = (x) => JSON.parse(JSON.stringify(x));
 
 // Space s1: tab A has terminals in repo-a (pane pa) and repo-b (pane pb); tab F is a full tab.
@@ -84,4 +84,12 @@ test("lastLocUpdate writes only on change and only for terminals", () => {
   assert.deepEqual(plain(next), { cwd: "/w/repo-a", machine: null, branch: "main" });
   assert.equal(lastLocUpdate(next, snapAt("pa", "A")), null);
   assert.equal(lastLocUpdate(next, snapAt("pf", "F")), null);
+});
+
+test("spaceFullTabs: full tabs of one space, in tab order", () => {
+  const two = [...spaces, { id: "s2", tabs: [{ id: "G" }] }];
+  const more = [...panes, { pane: "pg", terminal: null, mod: "omni-forge", tab: "G" }];
+  assert.deepEqual(plain(spaceFullTabs(more, two, "s1")), ["F"]);
+  assert.deepEqual(plain(spaceFullTabs(more, two, "s2")), ["G"]);
+  assert.deepEqual(plain(spaceFullTabs(panes, spaces, "nope")), []);
 });

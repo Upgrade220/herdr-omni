@@ -1,18 +1,13 @@
 // omni-forge: CI for the current space's GitHub or GitLab project. A layout puts one copy per
-// block, and `view` in its props picks which part. `side` is a stub until its task lands.
-import { View, div } from "gpui-kit";
+// block, and `view` in its props picks which part: side (the default), full, log, or send (a dialog).
+import { View } from "gpui-kit";
 import { props } from "herdr";
 import { LogView } from "./views/log.js";
 import { FullView } from "./views/full.js";
+import { SideView } from "./views/side.js";
+import { SendView } from "./views/send.js";
 
-const stub = (name) => class {
-  init() {}
-  render() {
-    return div().child(name);
-  }
-};
-
-const PARTS = { side: stub("side"), full: FullView, log: LogView };
+const PARTS = { side: SideView, full: FullView, log: LogView, send: SendView };
 
 export default class OmniForge extends View {
   init(given, cx) {

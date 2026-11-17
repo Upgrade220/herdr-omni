@@ -2,10 +2,11 @@
 // artifacts with download. `owner` is the FullView (repo, provider, watches, back()).
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, home, notify, run as runCommand } from "herdr";
+import { exec, home, notify, focused, run as runCommand } from "herdr";
 import { watchKey } from "../ci/watch.js";
 import { nextDelay } from "../ci/poller.js";
 import { ago, dur, size } from "./runs.js";
+import { openSendDialog } from "./send.js";
 import { icon, pill, section, statusIcon, runPills, button, busyState, errorState } from "./ui.js";
 
 const LIVE = new Set(["running", "pending"]);
@@ -104,6 +105,12 @@ export class Detail {
     runCommand("pane.split", { direction: "right", mod: "omni-forge", props: { view: "log", kind, host, path, runId: this.runId, jobId: job.id, name: job.name } });
   }
 
+  // The Send to agent dialog for a failed job. A new agent starts in the followed terminal's folder.
+  sendToAgent(job) {
+    const loc = this.owner.loc;
+    openSendDialog({ repo: this.repo, run: this.run, job, folder: loc?.cwd, machine: loc?.machine, space: focused()?.space });
+  }
+
   // ---- actions ---------------------------------------------------------------
 
   // Buttons for the run as { id, label, onClick, primary?, danger? }.
@@ -125,7 +132,7 @@ export class Detail {
     return out;
   }
 
-  // Buttons for one job, same shape as runActions. Task 7 extends this (Send to agent on failed jobs).
+  // Buttons for one job, same shape as runActions. A failed job also gets Send to agent.
   jobActions(job, ids) {
     const p = this.provider;
     const out = [];
@@ -142,6 +149,9 @@ export class Detail {
     }
     if (job.status !== "manual" && job.status !== "skipped") {
       out.push({ id: `${ids}-log`, label: "Log", onClick: () => this.openLog(job) });
+    }
+    if (job.status === "failed") {
+      out.push({ id: `${ids}-agent`, label: "Send to agent", onClick: () => this.sendToAgent(job) });
     }
     return out;
   }
