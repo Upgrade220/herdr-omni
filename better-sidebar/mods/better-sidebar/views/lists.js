@@ -85,7 +85,7 @@ export class Lists {
     // herdr-omni: every row folds; agents in folded rows keep their place in the order.
     const folding = new SpaceTree(this.folds, this.spaces.ordered(), (w) => itemsOf(w).length > 0);
     this.folds.follow(shownTab, folding.path(shownTab));
-    for (const r of folding.rows) order.push(...itemsOf(r.w).filter((x) => x.a).map((x) => x.a.address));
+    for (const r of this.drawOrder(folding.rows)) order.push(...itemsOf(r.w).filter((x) => x.a).map((x) => x.a.address));
     this.wireFolds(folding);
     // One row lit: a space whose focused agent or tab shows beneath it leaves it to that row.
     this.spaces.quiet = (w) =>
@@ -124,6 +124,18 @@ export class Lists {
     const body = this.spaces.body(t, false);
     setAgentOrder(order);
     return root.child(body);
+  }
+
+  // herdr-omni: rows in the order Spaces.grouped() draws them: this computer, then
+  // other machines by name, leaving out machines whose header is folded.
+  drawOrder(rows) {
+    const remote = [
+      ...new Set([...rows.map((r) => r.w.machine).filter(Boolean), ...this.spaces.machines.map((m) => m.name)]),
+    ].sort();
+    if (!remote.length) return rows;
+    return [null, ...remote]
+      .filter((m) => !this.spaces.folded.has(m))
+      .flatMap((m) => rows.filter((r) => (r.w.machine ?? null) === m));
   }
 
   // herdr-omni: the chevron and folded status dot on space and worktree rows.

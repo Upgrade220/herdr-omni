@@ -21,6 +21,7 @@ export class Folds {
     this.storage = storage;
     this.key = key;
     this.lastTab = undefined;
+    this.followed = new Set();
     try {
       const saved = JSON.parse(storage.getItem(key) ?? "{}");
       this.choices = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
@@ -37,13 +38,20 @@ export class Folds {
     this.set(id, !this.isOpen(id, byDefault));
   }
 
-  // Opens the rows down to the shown tab, once per tab change, so folding that
-  // row again afterwards sticks.
+  // Opens the rows down to the shown tab, each once per tab change, so folding
+  // one again afterwards sticks. Rows that appear later for the same tab (its git
+  // arrived, a new space settled in) still open.
   follow(tabId, path) {
-    if (tabId === this.lastTab) return;
-    this.lastTab = tabId;
+    if (tabId !== this.lastTab) {
+      this.lastTab = tabId;
+      this.followed = new Set();
+    }
     if (!tabId) return;
-    for (const id of path) if (this.choices[id] !== true) this.set(id, true);
+    for (const id of path) {
+      if (this.followed.has(id)) continue;
+      this.followed.add(id);
+      if (this.choices[id] !== true) this.set(id, true);
+    }
   }
 
   set(id, open) {
@@ -70,8 +78,8 @@ export function Chevron({ id, open, onToggle }) {
     .text_color(t.dim)
     .cursor_pointer()
     .hover((s) => s.bg(t.hover).text_color(t.foreground))
+    // Mouse-up is left alone: a drag released here must still end.
     .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-    .on_mouse_up("left", (_e, cx) => cx.stop_propagation())
     .on_click((_e, cx) => {
       cx.stop_propagation();
       onToggle(cx);

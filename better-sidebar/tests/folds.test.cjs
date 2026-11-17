@@ -91,16 +91,20 @@ test("bad saved fold state is ignored", () => {
   assert.equal(folds.isOpen("s", false), false);
 });
 
-test("Chevron stops the press and toggles only on click", () => {
+test("Chevron stops the press and click, but lets a drag end over it", () => {
   const { Chevron } = load();
   let toggled = 0;
   const chevron = Chevron({ id: "fold-s", open: false, onToggle: () => toggled++ });
   assert.equal(chevron.id, "fold-s");
-  for (const name of ["mouse_down_left", "mouse_up_left", "click"]) {
+  const press = (name) => {
     let stopped = false;
-    chevron.handlers[name]({}, { stop_propagation: () => (stopped = true) });
-    assert.ok(stopped, `${name} stops propagation`);
-  }
+    chevron.handlers[name]?.({}, { stop_propagation: () => (stopped = true) });
+    return stopped;
+  };
+  assert.ok(press("mouse_down_left"), "the press never reaches the row");
+  assert.ok(press("click"));
+  // A drag released over it must still reach the row and the list.
+  assert.equal(press("mouse_up_left"), false);
   assert.equal(toggled, 1);
 });
 
@@ -109,4 +113,16 @@ test("StatusDot shows nothing for idle or no status", () => {
   assert.equal(StatusDot("idle"), null);
   assert.equal(StatusDot(null), null);
   assert.ok(StatusDot("blocked"));
+});
+
+test("follow opens rows that appear later for the same tab, and keeps earlier folds", () => {
+  const { Folds } = load();
+  const folds = new Folds(storage());
+  folds.follow("t1", []);
+  folds.follow("t1", ["s"]);
+  assert.equal(folds.isOpen("s", false), true);
+  folds.toggle("s", false);
+  folds.follow("t1", ["s", "s:main"]);
+  assert.equal(folds.isOpen("s", false), false);
+  assert.equal(folds.isOpen("s:main", false), true);
 });

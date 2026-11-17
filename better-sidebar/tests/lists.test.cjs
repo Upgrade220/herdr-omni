@@ -185,12 +185,9 @@ test("clicking a space's chevron shows its tabs, and that is kept after a restar
 
 test("pressing a chevron neither selects nor drags its space", async () => {
   const { mod } = await harness();
-  const chevron = find(mod.render(), "fold-shop");
-  for (const name of ["mouse_down_left", "mouse_up_left"]) {
-    const cx = stopper();
-    chevron.handlers[name]({}, cx);
-    assert.ok(cx.stopped, name);
-  }
+  const cx = stopper();
+  find(mod.render(), "fold-shop").handlers.mouse_down_left({}, cx);
+  assert.ok(cx.stopped);
 });
 
 test("a folded space shows its most urgent status, and opened it shows none", async () => {
@@ -274,4 +271,24 @@ test("an orphan worktree stays top-level with a plain fold", async () => {
   const root = mod.render();
   assert.equal(ids(root).find((id) => String(id).startsWith("space-main-")), undefined);
   assert.ok(find(root, "fold-wt"));
+});
+
+test("the shown tab opens its main-checkout node once git shows the worktree", async () => {
+  const { spaces, git } = withWorktree({ active: "shop" });
+  const { mod } = await harness({ spaces, focusedTab: "d" });
+  mod.render();
+  for (const [folder, info] of Object.entries(git)) mod.spaces.git[JSON.stringify([null, folder])] = info;
+  assert.ok(find(mod.render(), "tab-d"));
+});
+
+test("next-agent keys follow the drawn machine order: this computer first", async () => {
+  const tabOf = (id) => ({ id, name: id });
+  const { mod, live } = await harness({
+    spaces: [
+      { id: "docs", name: "docs", folder: "/docs", machine: "vps", tabs: [tabOf("c")] },
+      { id: "shop", name: "shop", folder: "/shop", tabs: [tabOf("a"), tabOf("b")] },
+    ],
+  });
+  mod.render();
+  assert.deepEqual(live.order, ["t1", "t3", "t2"]);
 });
