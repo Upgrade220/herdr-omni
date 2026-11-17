@@ -1,6 +1,6 @@
 // GitHub provider: REST through `gh api`, shell for logs and `gh run download`. Same interface as gitlabProvider.
 // RunDetail.groups is one group per job (the job holds its steps), so Job.group is the job name.
-import { cli, shell, ForgeError } from "./cli.js";
+import { cli, shell, tailText, ForgeError } from "./cli.js";
 
 const RUNNING = { in_progress: "running", queued: "pending", waiting: "pending", requested: "pending", pending: "pending" };
 const CONCLUSION = {
@@ -20,15 +20,6 @@ function seconds(from, to) {
   if (!from || !to) return null;
   const s = (Date.parse(to) - Date.parse(from)) / 1000;
   return Number.isFinite(s) && s >= 0 ? Math.round(s) : null;
-}
-
-function utf8Len(s) {
-  let n = 0;
-  for (const ch of s) {
-    const c = ch.codePointAt(0);
-    n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
-  }
-  return n;
 }
 
 export function githubProvider(exec, { host, path }) {
@@ -93,18 +84,21 @@ export function githubProvider(exec, { host, path }) {
     },
 
     async jobLog(jobId, { maxBytes = 200000 } = {}) {
+      // `gh api .../logs` fails on the blob-store redirect, so use `gh run view --log`; it prefixes each
+      // line with "<job>\t<step>\t", which sed strips. Capture first, tail after, so gh's exit code is kept.
+      const script = 'out=$(gh run view --job "$1" -R "$2" --log) || exit $?; t=$(printf "\\t"); printf %s "$out" | sed "s/^[^$t]*$t[^$t]*$t//" | tail -c "$3"';
       let out;
       try {
-        out = await sh('out=$(gh api --hostname "$1" "$2") || exit $?; printf %s "$out" | tail -c "$3"', [host, `${api}/jobs/${jobId}/logs`, String(maxBytes + 1)]);
+        out = await sh(script, [String(jobId), `${host}/${path}`, String(maxBytes + 1)]);
       } catch (e) {
-        // GitHub answers 404 until the job has finished.
-        if (e instanceof ForgeError && e.status === 404) return { text: "", truncated: false, available: false };
+        // A running job has no log yet (gh says "still in progress"); a missing one is a 404.
+        if (e instanceof ForgeError && (e.status === 404 || /still in progress|not completed/i.test(e.message))) return { text: "", truncated: false, available: false };
+        if (e instanceof ForgeError && !e.hint) e.hint = "Could not fetch the job log. Check gh auth and your access to the repository.";
         throw e;
       }
-      const truncated = utf8Len(out) > maxBytes;
-      let text = out.replace(/^\uFFFD+/, "");
-      while (utf8Len(text) > maxBytes) text = text.slice(text.codePointAt(0) > 0xffff ? 2 : 1);
-      return { text, truncated, available: true };
+      const { text, truncated } = tailText(out, maxBytes);
+      // Each log line starts with a BOM after the prefix.
+      return { text: text.replace(/^\uFEFF/gm, ""), truncated, available: true };
     },
 
     async retryRun(id, { failedOnly = false } = {}) { await post(`${api}/runs/${id}/${failedOnly ? "rerun-failed-jobs" : "rerun"}`); },

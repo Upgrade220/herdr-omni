@@ -1,5 +1,5 @@
 // GitLab provider: GraphQL for list/detail, REST (glab api) for actions, shell pipes for log/artifact.
-import { cli, shell, ForgeError } from "./cli.js";
+import { cli, shell, tailText, ForgeError } from "./cli.js";
 
 const STATUS = {
   RUNNING: "running",
@@ -29,15 +29,6 @@ function listQuery(branch, limit) {
     ? ` mergeRequests(sourceBranches: [${JSON.stringify(branch)}], state: opened){nodes{iid sourceBranch pipelines(first: ${limit}){nodes{${PIPELINE_FIELDS}}}}}`
     : "";
   return `query($p: ID!){ project(fullPath: $p){ pipelines(first: ${limit}${ref}){nodes{${PIPELINE_FIELDS}}}${mrs} } }`;
-}
-
-function utf8Len(s) {
-  let n = 0;
-  for (const ch of s) {
-    const c = ch.codePointAt(0);
-    n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
-  }
-  return n;
 }
 
 export function gitlabProvider(exec, { host, path }) {
@@ -125,11 +116,7 @@ export function gitlabProvider(exec, { host, path }) {
     async jobLog(jobId, { maxBytes = 200000 } = {}) {
       // Capture first, tail after: a pipe would hide glab's exit code behind tail's.
       const out = await sh('out=$(glab api --hostname "$1" "$2") || exit $?; printf %s "$out" | tail -c "$3"', [host, `projects/${enc}/jobs/${lastId(jobId)}/trace`, String(maxBytes + 1)]);
-      // tail -c counts bytes; a cut multibyte char decodes to leading U+FFFD, which is dropped.
-      const truncated = utf8Len(out) > maxBytes;
-      let text = out.replace(/^\uFFFD+/, "");
-      while (utf8Len(text) > maxBytes) text = text.slice(text.codePointAt(0) > 0xffff ? 2 : 1);
-      return { text, truncated, available: true };
+      return { ...tailText(out, maxBytes), available: true };
     },
 
     async retryRun(id) { await rest(`projects/${enc}/pipelines/${lastId(id)}/retry`); },

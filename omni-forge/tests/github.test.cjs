@@ -94,12 +94,15 @@ test("runDetail: one group per job with steps, plus artifacts", async () => {
   assert.equal(d.artifacts[0].jobId, null);
 });
 
-test("jobLog returns text, truncates by bytes", async () => {
-  const { exec, calls } = recorder(() => ok("0123456789"));
+test("jobLog runs gh run view --log and returns the tail", async () => {
+  const { exec, calls } = recorder(() => ok("56789"));
   const r = await githubProvider(exec, repo).jobLog("501", { maxBytes: 4 });
   assert.equal(calls[0].cmd, "sh");
-  assert.ok(calls[0].args.includes("repos/acme/app/actions/jobs/501/logs"));
+  assert.ok(calls[0].args.includes("501") && calls[0].args.includes("github.com/acme/app"));
+  assert.ok(calls[0].args.some((a) => a.includes("gh run view")));
   assert.equal(r.available, true);
+  assert.equal(r.text, "6789");
+  assert.equal(r.truncated, true);
 });
 
 test("jobLog 404 means not available", async () => {
@@ -153,11 +156,27 @@ const realExec = (binDir) => (cmd, args) =>
     execFile(cmd, args, { env: { ...process.env, PATH: binDir + ":" + process.env.PATH } }, (e, stdout, stderr) =>
       resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, stdout, stderr })));
 
-test("real jobLog script tails to maxBytes", async () => {
-  const bin = fakeGh("printf '0123456789ABCDEF'");
-  const r = await githubProvider(realExec(bin), repo).jobLog("5", { maxBytes: 4 });
-  assert.equal(r.text, "CDEF");
-  assert.equal(r.truncated, true);
+test("real jobLog script strips the job/step prefix and tails", async () => {
+  const bin = fakeGh("printf 'build\\tRun tests\\t\\357\\273\\277line one\\nbuild\\tRun tests\\t\\357\\273\\277line two\\n'");
+  const p = githubProvider(realExec(bin), repo);
+  const full = await p.jobLog("5");
+  assert.equal(full.text, "line one\nline two\n");
+  assert.equal(full.truncated, false);
+  const cut = await p.jobLog("5", { maxBytes: 5 });
+  assert.equal(cut.truncated, true);
+  assert.equal(cut.text, "two\n");
+  assert.ok(Buffer.byteLength(cut.text) <= 5);
+});
+
+test("real jobLog script: job still in progress is unavailable", async () => {
+  const bin = fakeGh('echo "job 5 is still in progress; logs will be available when it is complete" >&2; exit 1');
+  const r = await githubProvider(realExec(bin), repo).jobLog("5");
+  assert.deepEqual({ ...r }, { text: "", truncated: false, available: false });
+});
+
+test("real jobLog script: other failures throw with a hint", async () => {
+  const bin = fakeGh('echo "boom" >&2; exit 1');
+  await assert.rejects(() => githubProvider(realExec(bin), repo).jobLog("5"), (e) => e.message === "boom" && e.hint.length > 0);
 });
 
 test("real jobLog script maps 404 to unavailable", async () => {

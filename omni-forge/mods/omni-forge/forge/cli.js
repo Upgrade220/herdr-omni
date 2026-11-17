@@ -63,3 +63,21 @@ export async function shell(exec, kind, host, script, args, { timeout = 60000 } 
   const res = await run(exec, kind, host, "sh", ["-c", script, "sh", ...args], timeout, toolOf(kind));
   return res.stdout ?? "";
 }
+
+function utf8Len(s) {
+  let n = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+  }
+  return n;
+}
+
+// `out` is the result of `tail -c maxBytes+1`: keeps at most maxBytes bytes and reports whether it had to cut.
+// tail -c counts bytes; a cut multibyte char decodes to leading U+FFFD, which is dropped.
+export function tailText(out, maxBytes) {
+  const truncated = utf8Len(out) > maxBytes;
+  let text = out.replace(/^\uFFFD+/, "");
+  while (utf8Len(text) > maxBytes) text = text.slice(text.codePointAt(0) > 0xffff ? 2 : 1);
+  return { text, truncated };
+}
