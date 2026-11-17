@@ -6,7 +6,7 @@ import { agents, focused, theme, setAgentOrder } from "herdr";
 import { Spaces } from "./spaces.js";
 import { Agents } from "./agents.js";
 import { TEXT, Badge, Rail } from "./ui.js";
-import { Folds, SpaceTree, Chevron, StatusDot } from "./folds.js";
+import { Folds, SpaceTree, Chevron, StatusDot, mainNodeRow, mainNodeId, mostUrgent } from "./folds.js";
 
 const TABS = ["spaces", "agents"];
 
@@ -43,6 +43,7 @@ export class Lists {
     this.spaces.lead = null;
     this.spaces.trail = null;
     this.spaces.hidden = null;
+    this.spaces.lit = null;
     // The rail has no room for tabs: both lists, as numbers.
     if (!this.spaces.settings.combined || collapsed)
       return root
@@ -86,22 +87,40 @@ export class Lists {
     this.folds.follow(shownTab, folding.path(shownTab));
     for (const r of folding.rows) order.push(...itemsOf(r.w).filter((x) => x.a).map((x) => x.a.address));
     this.wireFolds(folding);
+    // One row lit: a space whose focused agent or tab shows beneath it leaves it to that row.
+    this.spaces.quiet = (w) =>
+      all.some((a) => a.space === w.id && a.focused) || w.tabs.some((tab) => tab.id === shownTab && plain(tab));
+    // herdr-omni: or the folded row the shown tab is hidden in.
+    const litId = folding.lit(shownTab, folding.rows.find((r) => r.w.active)?.w, this.spaces.quiet);
+    this.spaces.lit = (w) => litId === w.id;
     this.spaces.under = (r) => {
-      if (!folding.tabsOpen(r)) return [];
       const { w, tree, kids } = r;
+      // herdr-omni: a space with worktrees keeps its own tabs under a node for its branch.
+      if (folding.hasNode(r)) {
+        if (!folding.open(w.id)) return [];
+        const id = mainNodeId(w.id);
+        const open = folding.open(id);
+        const onToggle = (cx) => {
+          folding.toggle(id);
+          cx.notify();
+        };
+        const status = mostUrgent([w.status]);
+        const node = mainNodeRow({ spaceId: w.id, branch: r.g?.branch, open, status, lit: litId === id, onToggle });
+        return [nest(["├"], node), ...(open ? tabRows(w, ["│"], false) : [])];
+      }
+      if (!folding.tabsOpen(r)) return [];
+      return tabRows(w, tree ? [tree.startsWith("└") ? "" : "│"] : [], kids > 0);
+    };
+    const tabRows = (w, before, more) => {
       const items = itemsOf(w);
-      const before = tree ? [tree.startsWith("└") ? "" : "│"] : [];
       return items.flatMap((x, i) => {
-        const last = i === items.length - 1 && !kids;
+        const last = i === items.length - 1 && !more;
         const [row, ...subs] = x.a
           ? this.agents.agentWithSubs(x.a, i, nested, t)
           : [this.agents.tabRow(w, x.tab, x.tab.id === shownTab, t)];
         return [nest([...before, last ? "└" : "├"], row), ...subs.map((s) => nest([...before, last ? "" : "│"], s))];
       });
     };
-    // One row lit: a space whose focused agent or tab shows beneath it leaves it to that row.
-    this.spaces.quiet = (w) =>
-      all.some((a) => a.space === w.id && a.focused) || w.tabs.some((tab) => tab.id === shownTab && plain(tab));
     const body = this.spaces.body(t, false);
     setAgentOrder(order);
     return root.child(body);

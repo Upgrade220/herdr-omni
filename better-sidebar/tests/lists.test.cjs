@@ -206,3 +206,72 @@ test("the shown tab's space opens by itself", async () => {
   assert.ok(find(mod.render(), "ag-t3"));
   assert.equal(find(mod.render(), "ag-t2"), undefined);
 });
+
+// A main checkout with a worktree open beside it.
+const REPO = JSON.stringify([null, "/shop/.git"]);
+const withWorktree = ({ drop = [], active = null } = {}) => ({
+  spaces: [
+    { id: "shop", name: "shop", folder: "/shop", status: "idle", tabs: ["a", "b", "d"].map((id) => ({ id, name: id })) },
+    { id: "wt", name: "wt", folder: "/wt", status: "blocked", tabs: [{ id: "e", name: "e" }] },
+    { id: "docs", name: "docs", folder: "/docs", status: "done", tabs: [{ id: "c", name: "c" }] },
+  ]
+    .filter((s) => !drop.includes(s.id))
+    .map((s) => ({ ...s, active: s.id === active })),
+  git: {
+    "/shop": { branch: "main", repo: REPO, linked: false, ahead: 0, behind: 0 },
+    "/wt": { branch: "fix", repo: REPO, linked: true, ahead: 0, behind: 0 },
+  },
+});
+const bg = (node) => node?.attributes?.bg?.[0];
+
+test("a space with a worktree puts its own tabs under a node named for its branch", async () => {
+  const { mod } = await harness({ ...withWorktree(), stored: { "spaces.folds": JSON.stringify({ "shop:main": true }) } });
+  const root = mod.render();
+  assert.deepEqual(drawnRows(root).slice(0, 6), ["space-shop", "space-main-shop", "ag-t1", "ag-t3", "tab-d", "space-wt"]);
+  assert.match(text(find(root, "space-main-shop")), /main/);
+});
+
+test("a space with worktrees starts open, its node and worktrees folded", async () => {
+  const { mod } = await harness(withWorktree());
+  const root = mod.render();
+  assert.deepEqual(drawnRows(root), ["space-shop", "space-main-shop", "space-wt", "space-docs"]);
+  assert.ok(find(root, "dot-wt"));
+  assert.equal(find(root, "dot-shop"), undefined);
+});
+
+test("folding the space hides its node and worktrees, and its dot speaks for them", async () => {
+  const { mod } = await harness(withWorktree());
+  find(mod.render(), "fold-shop").handlers.click({}, stopper());
+  const root = mod.render();
+  assert.deepEqual(drawnRows(root), ["space-shop", "space-docs"]);
+  assert.ok(find(root, "dot-shop"));
+});
+
+test("the shown main-checkout tab opens the space and its node, and only that tab is lit", async () => {
+  const { mod } = await harness({ ...withWorktree({ active: "shop" }), focusedTab: "d" });
+  const root = mod.render();
+  assert.equal(bg(find(root, "tab-d")), "selected");
+  assert.notEqual(bg(find(root, "space-shop")), "selected");
+});
+
+test("a shown tab folded away leaves the nearest drawn row lit", async () => {
+  const { mod } = await harness({ ...withWorktree({ active: "shop" }), focusedTab: "d" });
+  find(mod.render(), "space-main-shop").handlers.click({}, stopper());
+  const root = mod.render();
+  assert.equal(find(root, "tab-d"), undefined);
+  assert.equal(bg(find(root, "space-main-shop")), "selected");
+  assert.notEqual(bg(find(root, "space-shop")), "selected");
+});
+
+test("a worktree folded away inside its space leaves the space lit", async () => {
+  const { mod } = await harness({ ...withWorktree({ active: "wt" }), focusedTab: "e" });
+  find(mod.render(), "fold-shop").handlers.click({}, stopper());
+  assert.equal(bg(find(mod.render(), "space-shop")), "selected");
+});
+
+test("an orphan worktree stays top-level with a plain fold", async () => {
+  const { mod } = await harness(withWorktree({ drop: ["shop"] }));
+  const root = mod.render();
+  assert.equal(ids(root).find((id) => String(id).startsWith("space-main-")), undefined);
+  assert.ok(find(root, "fold-wt"));
+});

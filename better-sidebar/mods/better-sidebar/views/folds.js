@@ -2,6 +2,7 @@
 // remembered per mod copy; the chevron that folds them; the dot a folded row
 // shows for the most urgent agent inside it.
 import { div } from "gpui-kit";
+import { h_flex } from "gpui-base";
 import { theme } from "herdr";
 import { Icon } from "./ui.js";
 
@@ -102,8 +103,14 @@ export class SpaceTree {
     return this.rows.filter((r) => r.parent === id);
   }
 
+  // A space's main-checkout node, like a worktree, starts folded.
   byDefault(id) {
     return (this.row(id)?.kids ?? 0) > 0;
+  }
+
+  // Only a space with worktrees beneath it gets a main-checkout node.
+  hasNode(r) {
+    return !r.tree && r.kids > 0;
   }
 
   open(id) {
@@ -123,20 +130,53 @@ export class SpaceTree {
     return Boolean(r.parent) && !this.open(r.parent);
   }
 
-  // Whether a row's own tabs show beneath it.
+  // Whether a row's own tabs show: through its main-checkout node when it has one.
   tabsOpen(r) {
-    return this.open(r.w.id);
+    return this.open(r.w.id) && (!this.hasNode(r) || this.open(mainNodeId(r.w.id)));
   }
 
   // The rows to open so the tab `tabId` shows, outermost first.
   path(tabId) {
     const r = this.rows.find((x) => (x.w.tabs ?? []).some((tab) => tab.id === tabId));
     if (!r) return [];
-    return r.parent ? [r.parent, r.w.id] : [r.w.id];
+    if (r.parent) return [r.parent, r.w.id];
+    return this.hasNode(r) ? [r.w.id, mainNodeId(r.w.id)] : [r.w.id];
+  }
+
+  // The one row to light: the outermost folded row on the way to the shown tab,
+  // else, as upstream, the active space unless a row beneath it is lit already.
+  lit(tabId, active, quiet) {
+    const closed = this.path(tabId).find((id) => !this.open(id));
+    if (closed) return closed;
+    return active && !quiet(active) ? active.id : null;
   }
 
   // A folded space speaks for its worktrees too.
   status(r) {
     return mostUrgent([r.w.status, ...this.kids(r.w.id).map((k) => k.w.status)]);
   }
+}
+
+// The main checkout's own row, above its space's worktrees, named for its branch.
+// The whole row folds it.
+export function mainNodeRow({ spaceId, branch, open, status, lit, onToggle }) {
+  const t = theme();
+  const id = mainNodeId(spaceId);
+  const name = !branch || branch === "(detached)" ? "detached" : branch;
+  return h_flex()
+    .id(`space-main-${spaceId}`)
+    .h(28)
+    .px(8)
+    .gap(9)
+    .flex_none()
+    .items_center()
+    .rounded(8)
+    .cursor_pointer()
+    .when(lit, (el) => el.bg(t.selected))
+    .when(!lit, (el) => el.hover((s) => s.bg(t.hover)))
+    .on_click((_e, cx) => onToggle(cx))
+    .child(Chevron({ id: `fold-${id}`, open, onToggle }))
+    .child(Icon("branch", 13).text_color(t.dim))
+    .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).tooltip(name).child(name))
+    .when(!open, (el) => el.children([StatusDot(status, `dot-${id}`)].filter(Boolean)));
 }

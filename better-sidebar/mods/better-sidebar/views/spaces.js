@@ -606,7 +606,8 @@ export class Spaces {
     const status = this.checkoutStatus(w);
     const hasPRLine = Boolean(status?.error);
     // One row is lit: under the lists view, the focused agent beneath takes it.
-    const lit = w.active && !this.quiet?.(w);
+    // `lit` (herdr-omni, lists view) picks the row itself, folded rows included.
+    const lit = this.lit ? this.lit(w) : w.active && !this.quiet?.(w);
     const row = v_flex()
       .relative()
       .id(`space-${w.id}`)
