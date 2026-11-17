@@ -11,10 +11,11 @@ import { detectRepo } from "../forge/detect.js";
 import { providerFor } from "../forge/providers.js";
 import { nextDelay } from "../ci/poller.js";
 import { Watches, watchKey, claimOwner, watchTick } from "../ci/watch.js";
-import { filterRuns, chipCounts, anyLive, ago, dur } from "./runs.js";
+import { filterRuns, chipCounts, anyLive, ago } from "./runs.js";
 import { Detail, WATCHABLE } from "./detail.js";
+import { parseOpen, isVisible, nextLoc, lastLocUpdate, LAST_LOC } from "./locate.js";
 import {
-  MOD, pill, statusIcon, statusPill, filterChip, tabPill, searchBox, button, busyState, message, errorState,
+  statusIcon, runPills, filterChip, tabPill, searchBox, button, busyState, message, errorState,
 } from "./ui.js";
 
 const TICK_MS = 1000;
@@ -30,27 +31,6 @@ const CHIP_LIST = [
 ];
 
 const sameRepo = (a, b) => Boolean(a && b) && a.kind === b.kind && a.host === b.host && a.path === b.path;
-
-function parseOpen(value) {
-  try {
-    const [kind, host, path, runId] = JSON.parse(value);
-    return runId ? { kind, host, path, runId: String(runId) } : null;
-  } catch {
-    return null;
-  }
-}
-
-// Tabs that hold only omni-forge panes (a full tab, maybe with a log split beside it).
-function fullTabs(all) {
-  const byTab = new Map();
-  for (const p of all) {
-    const e = byTab.get(p.tab) ?? { mod: 0, other: 0 };
-    if (p.mod === MOD) e.mod++;
-    else e.other++;
-    byTab.set(p.tab, e);
-  }
-  return [...byTab].filter(([, e]) => e.mod > 0 && e.other === 0).map(([id]) => id);
-}
 
 export class FullView {
   init(given, cx) {
@@ -78,7 +58,22 @@ export class FullView {
     this.watchBusy = false;
     this.resetList();
     this.listBusy = false;
+    this.seenTerm = null;
+    this.seed(cx);
     cx.timer.every(TICK_MS, (cx) => this.tick(cx));
+  }
+
+  // props.open names the repo and run: show them at once, without detection. The focused terminal
+  // at this moment doesn't count as a move (seenTerm), so the view stays until focus changes.
+  seed(cx) {
+    const open = this.open;
+    if (!open) return;
+    this.open = null;
+    this.repo = { kind: open.kind, host: open.host, path: open.path };
+    this.provider = providerFor(this.repo);
+    this.loc = { key: `open|${open.kind}|${open.host}|${open.path}`, cwd: null, machine: null, branch: null };
+    this.seenTerm = nextLoc({ loc: this.loc, seenTerm: null, lastLoc: null }, this.snap()).seenTerm;
+    this.openRun({ id: open.runId }, cx, { load: !checking() });
   }
 
   resetList() {
@@ -102,44 +97,28 @@ export class FullView {
 
   // ---- where we are ----------------------------------------------------------
 
-  // The focused terminal's folder, machine and branch. On a full tab (no terminal) keep the last one.
-  locate() {
-    const f = focused();
-    if (!f) return null;
-    const all = panes();
-    if (this.loc && fullTabs(all).includes(f.tab)) return null;
-    const space = spaces().find((s) => s.id === f.space);
-    const machine = f.pane === null && f.terminal?.includes("/") ? f.terminal.split("/")[0] : (space?.machine ?? null);
-    const pane = f.pane ? all.find((p) => p.pane === f.pane) : null;
-    let cwd = pane?.cwd || f.cwd || null;
-    let branch = pane?.branch ?? (cwd ? all.find((p) => p.cwd === cwd && p.branch)?.branch : null) ?? null;
-    if (!cwd) {
-      const tabs = new Set((space?.tabs ?? []).map((x) => x.id));
-      const other = all.find((p) => p.tab === f.tab && p.cwd) ?? all.find((p) => tabs.has(p.tab) && p.cwd);
-      cwd = other?.cwd || space?.folder || null;
-      branch = other?.branch ?? null;
-    }
-    return cwd ? { key: `${machine ?? ""}|${cwd}`, cwd, machine, branch } : null;
+  snap() {
+    return { focused: focused(), panes: panes(), spaces: spaces() };
   }
 
-  // Full is visible when the focused tab is its tab. panes() has no props, so the tab is found as the
-  // one holding only omni-forge panes; with several such tabs any of them counts; with none, the window.
   visible() {
-    const f = focused();
-    const tabs = fullTabs(panes());
-    if (tabs.length === 0) return appWindow().active;
-    return Boolean(f) && tabs.includes(f.tab);
+    return isVisible({ focused: focused(), panes: panes(), windowActive: appWindow().active });
   }
 
+  // Records the focused terminal as shared last-loc (only on change), then follows it: see locate.js.
   follow(cx) {
-    const loc = this.locate();
-    if (!loc) return;
-    if (loc.key !== this.loc?.key) {
-      this.loc = loc;
-      this.setBranch(loc.branch, cx);
-      this.detect(cx, loc);
-    } else if (loc.branch && loc.branch !== this.branch) {
-      this.setBranch(loc.branch, cx);
+    const snap = this.snap();
+    const last = shared(LAST_LOC) ?? null;
+    const update = lastLocUpdate(last, snap);
+    if (update) setShared(LAST_LOC, update);
+    const step = nextLoc({ loc: this.loc, seenTerm: this.seenTerm, lastLoc: this.loc ? null : last }, snap);
+    this.seenTerm = step.seenTerm;
+    if (step.move) {
+      this.loc = step.move;
+      this.setBranch(step.move.branch, cx);
+      this.detect(cx, step.move);
+    } else if (step.branch && step.branch !== this.branch) {
+      this.setBranch(step.branch, cx);
     }
   }
 
@@ -168,10 +147,6 @@ export class FullView {
           this.repoError = null;
           this.detail = null;
           this.resetList();
-          if (this.open && sameRepo(this.open, this.repo)) {
-            this.openRun({ id: this.open.runId }, cx);
-            this.open = null;
-          }
         }
       } catch (e) {
         this.repoError = { error: String(e?.message ?? e), hint: "" };
@@ -260,10 +235,10 @@ export class FullView {
 
   // ---- navigation ----------------------------------------------------------------
 
-  openRun(run, cx) {
+  openRun(run, cx, { load = true } = {}) {
     this.detail = new Detail(this, run.id, run.status ? run : null);
     if (run.status && WATCHABLE.has(run.status)) this.watches.add(watchKey({ ...this.repo, runId: run.id }), run);
-    this.detail.load(cx);
+    if (load) this.detail.load(cx);
     cx.notify();
   }
 
@@ -274,7 +249,13 @@ export class FullView {
   }
 
   refresh(cx) {
-    if (!this.repo) { this.loc = null; this.repoError = null; this.follow(cx); cx.notify(); return; }
+    if (!this.repo) {
+      this.repoError = null;
+      if (this.loc?.cwd) this.detect(cx, this.loc);
+      else { this.loc = null; this.follow(cx); }
+      cx.notify();
+      return;
+    }
     if (this.detail) this.detail.load(cx);
     else this.loadList(cx);
   }
@@ -351,7 +332,6 @@ export class FullView {
 
   // Title, #number and age on top; pills below: branch, status, duration, trigger, MR/PR, author.
   runRow(t, r, now) {
-    const request = this.repo.kind === "gitlab" ? `MR !${r.request}` : `PR #${r.request}`;
     return v_flex().id(`run-${r.id}`).w_full().flex_none().px(14).py(8).gap(6).cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => this.openRun(r, cx))
       .child(h_flex().gap(10).items_center()
@@ -359,12 +339,6 @@ export class FullView {
         .child(div().flex_1().min_w(0).truncate().text_size(14).child(r.title || `Run ${r.number ?? r.id}`))
         .child(div().flex_none().text_size(11).text_color(t.dim).child(r.number != null ? `#${r.number}` : ""))
         .child(div().flex_none().text_size(11).text_color(t.dim).child(ago(r.createdAt, now))))
-      .child(h_flex().pl(24).flex_wrap().gap(6).items_center()
-        .when(Boolean(r.branch), (e) => e.child(pill(t, { label: r.branch, symbol: "branch", code: true })))
-        .child(statusPill(t, r.status))
-        .when(r.durationSec != null, (e) => e.child(pill(t, { label: dur(r.durationSec) })))
-        .when(Boolean(r.trigger), (e) => e.child(pill(t, { label: r.trigger.replace(/_/g, " "), color: r.trigger === "push" ? undefined : t.accent })))
-        .when(r.request != null, (e) => e.child(pill(t, { label: request, color: t.accent })))
-        .when(Boolean(r.author), (e) => e.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(r.author))));
+      .child(runPills(t, r, this.repo.kind).pl(24));
   }
 }

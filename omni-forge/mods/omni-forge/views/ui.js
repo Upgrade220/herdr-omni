@@ -6,6 +6,7 @@
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, Input } from "gpui-base";
 import { settings } from "herdr";
+import { dur as durText } from "./runs.js";
 
 export const MOD = "omni-forge";
 export const icon = (name) => `mods/${MOD}/icons/${name}.svg`;
@@ -38,6 +39,25 @@ export function statusPill(t, status) {
 }
 
 // ---- pills, chips, tabs ----------------------------------------------------
+
+/** `MR !12` on GitLab, `PR #12` on GitHub, or "" without a request. */
+export const requestLabel = (kind, request) => (request == null ? "" : kind === "gitlab" ? `MR !${request}` : `PR #${request}`);
+
+/**
+ * A run's pills in one row: branch, status, duration, trigger, MR/PR, attempt, then the author as
+ * dim text (`author: false` leaves it out). `kind` is the forge ("gitlab" | "github").
+ */
+export function runPills(t, run, kind, { author = true } = {}) {
+  const request = requestLabel(kind, run.request);
+  return h_flex().flex_wrap().gap(6).items_center()
+    .when(Boolean(run.branch), (e) => e.child(pill(t, { label: run.branch, symbol: "branch", code: true })))
+    .child(statusPill(t, run.status))
+    .when(run.durationSec != null, (e) => e.child(pill(t, { label: durText(run.durationSec) })))
+    .when(Boolean(run.trigger), (e) => e.child(pill(t, { label: run.trigger.replace(/_/g, " "), color: run.trigger === "push" ? undefined : t.accent })))
+    .when(Boolean(request), (e) => e.child(pill(t, { label: request, color: t.accent })))
+    .when((run.attempt ?? 1) > 1, (e) => e.child(pill(t, { label: `attempt ${run.attempt}` })))
+    .when(author && Boolean(run.author), (e) => e.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(run.author)));
+}
 
 /**
  * A small rounded label. `color` tints the background and colors the text;

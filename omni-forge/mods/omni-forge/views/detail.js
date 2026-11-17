@@ -6,7 +6,7 @@ import { exec, home, notify, run as runCommand } from "herdr";
 import { watchKey } from "../ci/watch.js";
 import { nextDelay } from "../ci/poller.js";
 import { ago, dur, size } from "./runs.js";
-import { icon, pill, section, statusIcon, statusPill, button, busyState, errorState } from "./ui.js";
+import { icon, pill, section, statusIcon, runPills, button, busyState, errorState } from "./ui.js";
 
 const LIVE = new Set(["running", "pending"]);
 export const WATCHABLE = new Set(["running", "pending", "manual"]);
@@ -166,18 +166,11 @@ export class Detail {
     }
 
     const now = Date.now();
-    const request = this.repo.kind === "gitlab" ? "MR !" : "PR #";
     const head = v_flex().flex_none().px(14).py(12).gap(8)
       .child(h_flex().gap(10).items_center().child(statusIcon(t, run.status))
         .child(div().flex_1().min_w(0).truncate().text_size(15).font_semibold().child(run.title || `Run ${run.number ?? run.id}`))
         .child(div().flex_none().text_size(11).text_color(t.dim).child(run.number != null ? `#${run.number}` : "")))
-      .child(h_flex().pl(24).flex_wrap().gap(6).items_center()
-        .child(statusPill(t, run.status))
-        .when(run.durationSec != null, (e) => e.child(pill(t, { label: dur(run.durationSec) })))
-        .when(Boolean(run.branch), (e) => e.child(pill(t, { label: run.branch, symbol: "branch", code: true })))
-        .when(Boolean(run.trigger), (e) => e.child(pill(t, { label: run.trigger.replace(/_/g, " "), color: t.accent })))
-        .when(run.request != null, (e) => e.child(pill(t, { label: `${request}${run.request}`, color: t.accent })))
-        .when((run.attempt ?? 1) > 1, (e) => e.child(pill(t, { label: `attempt ${run.attempt}` }))))
+      .child(runPills(t, run, this.repo.kind, { author: false }).pl(24))
       .child(div().pl(24).text_size(11).text_color(t.dim).child([run.author, ago(run.createdAt, now)].filter(Boolean).join(" · ")));
 
     const rows = [];
