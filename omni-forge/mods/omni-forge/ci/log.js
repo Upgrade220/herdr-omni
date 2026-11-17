@@ -55,3 +55,13 @@ export function cleanLog(text) {
   if (lines.length && lines[lines.length - 1].spans.length === 0) lines.pop();
   return { lines, firstError };
 }
+
+// Finds a job in a RunDetail by id. GitLab job ids are gids ("gid://gitlab/Ci::Build/123") while
+// callers may hold the numeric id, so both sides are compared by their last path segment.
+export function findJob(detail, jobId) {
+  const tail = (id) => String(id).split("/").pop();
+  for (const group of detail?.groups ?? []) {
+    for (const job of group.jobs ?? []) if (tail(job.id) === tail(jobId)) return job;
+  }
+  return null;
+}

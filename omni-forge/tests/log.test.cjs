@@ -39,3 +39,12 @@ test("bold and bright colours, other escapes dropped", () => {
   assert.equal(lines[0].spans[0].fg, 9);
   assert.equal(plain(lines[0]), "bad x");
 });
+
+test("findJob matches numeric and gid ids", () => {
+  const { findJob } = load(["ci/log.js"]);
+  const detail = { groups: [{ name: "build", jobs: [{ id: "gid://gitlab/Ci::Build/123", url: "u1" }] }, { name: "t", jobs: [{ id: "456", url: "u2" }] }] };
+  assert.equal(findJob(detail, 123).url, "u1");
+  assert.equal(findJob(detail, "gid://gitlab/Ci::Build/123").url, "u1");
+  assert.equal(findJob(detail, "456").url, "u2");
+  assert.equal(findJob(detail, 999), null);
+});
