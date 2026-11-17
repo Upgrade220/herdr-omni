@@ -102,7 +102,7 @@ export function githubProvider(exec, { host, path }) {
         throw e;
       }
       const truncated = utf8Len(out) > maxBytes;
-      let text = out.replace(/^�+/, "");
+      let text = out.replace(/^\uFFFD+/, "");
       while (utf8Len(text) > maxBytes) text = text.slice(text.codePointAt(0) > 0xffff ? 2 : 1);
       return { text, truncated, available: true };
     },
