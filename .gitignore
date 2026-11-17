@@ -3,3 +3,7 @@ node_modules/
 *.log
 .idea/
 .vscode/
+# written by herdr-app check / the app into mod folders
+jsconfig.json
+gpui-kit.d.ts
+herdr.d.ts

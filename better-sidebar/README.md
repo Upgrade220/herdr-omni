@@ -109,3 +109,16 @@ herdr-app check "$PWD/mods/better-sidebar"
 ```
 
 See the repository's [LICENSE](../LICENSE) and [NOTICE](../NOTICE) for upstream attribution.
+
+## Changes in herdr-omni
+
+This copy is adapted from [munza/herdr-mods](https://github.com/munza/herdr-mods/tree/main/better-sidebar) (v3.3.0). Only the Spaces tab of the `lists` view changed:
+
+- Every space, worktree and main-checkout row folds with a chevron. Clicking the chevron folds; clicking the row still selects it.
+- Rows whose children are tabs start folded. A space with worktrees starts open, with its rows folded.
+- A folded row shows a dot for the most urgent agent inside (blocked, then done, then working). A folded space's dot includes its worktrees.
+- The rows down to the tab you're looking at open by themselves, once per tab change. Folding them again sticks.
+- A space with worktrees puts its own tabs under a node named for its branch, above the worktrees.
+- Fold choices are kept across restarts (`localStorage`, `spaces.folds`). Next/previous agent still reaches agents in folded rows.
+
+The code is in `views/folds.js`, with small hooks (`lead`, `trail`, `hidden`, `lit`) in `views/spaces.js` and `views/lists.js`. Tests: `tests/folds.test.cjs` and the end of `tests/lists.test.cjs`.
