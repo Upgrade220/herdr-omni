@@ -8,6 +8,7 @@ taken from other people's mod repos and adjusted for how I work.
 | Mod | What it does | Based on |
 |---|---|---|
 | [better-sidebar](better-sidebar/) | Spaces and agents sidebar with branches, worktrees and PR status; folding tree | [munza/herdr-mods better-sidebar](https://github.com/munza/herdr-mods/tree/main/better-sidebar) |
+| [omni-forge](omni-forge/) | GitHub Actions and GitLab CI for the focused terminal's repo: a side list, a full tab with job actions, logs beside it, notifications and Send to agent | own (look from [cybertron288/ci-dash](https://github.com/cybertron288/herdr-mods/tree/main/ci-dash)) |
 
 ## Install
 
