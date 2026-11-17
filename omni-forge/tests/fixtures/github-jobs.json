@@ -1,0 +1,6 @@
+{"total_count":2,"jobs":[
+{"id":501,"name":"build","status":"completed","conclusion":"success","started_at":"2026-01-01T10:00:00Z","completed_at":"2026-01-01T10:01:00Z","html_url":"https://github.com/acme/app/actions/runs/9002/job/501","steps":[
+{"name":"Set up job","status":"completed","conclusion":"success","started_at":"2026-01-01T10:00:00Z","completed_at":"2026-01-01T10:00:05Z"},
+{"name":"Run tests","status":"completed","conclusion":"failure","started_at":"2026-01-01T10:00:05Z","completed_at":"2026-01-01T10:00:50Z"}]},
+{"id":502,"name":"deploy","status":"queued","conclusion":null,"started_at":null,"completed_at":null,"html_url":"https://github.com/acme/app/actions/runs/9002/job/502","steps":[]}
+]}
