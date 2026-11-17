@@ -11,8 +11,8 @@ const panes = [
 ];
 const focusOn = (pane, tab) => ({ space: "s1", tab, pane, terminal: panes.find((p) => p.pane === pane)?.terminal ?? null, cwd: panes.find((p) => p.pane === pane)?.cwd ?? null });
 
-function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect } = {}) {
-  const env = { focus, shared: { ...shared }, detects: [], opened: [] };
+function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes } = {}) {
+  const env = { focus, shared: { ...shared }, detects: [], opened: [], panes: paneList };
   const repoOf = (cwd) => ({ kind: "github", host: "github.com", path: `o/${cwd.split("/").pop()}`, url: "" });
   class Detail {
     constructor(owner, runId) { this.runId = runId; env.opened.push(runId); }
@@ -22,7 +22,7 @@ function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect } =
     InputState: { new: () => ({ on() {}, value: () => "", set_value() {} }) },
     exec: () => {},
     focused: () => env.focus,
-    panes: () => panes,
+    panes: () => env.panes,
     spaces: () => spaces,
     props: () => given,
     shared: (k) => env.shared[k],
@@ -117,9 +117,9 @@ test("shared open: taken (and cleared) in the tick only while visible, never in 
   view.follow(cx);
   await settle();
   assert.equal(view.repo.path, "o/repo-b");
-  env.shared["omni-forge.open"] = '["github","github.com","o/repo-b","55"]';
+  env.shared["omni-forge.open"] = { tab: "F", key: '["github","github.com","o/repo-b","55"]' };
   view.tick(cx); // focus is on tab A: not visible, the key waits
-  assert.equal(env.shared["omni-forge.open"], '["github","github.com","o/repo-b","55"]');
+  assert.equal(env.shared["omni-forge.open"].tab, "F");
   assert.deepEqual(env.opened, []);
   env.focus = focusOn("pf", "F");
   view.tick(cx);
@@ -136,10 +136,50 @@ test("shared open for another repo switches to it", async () => {
   view.follow(cx);
   await settle();
   env.focus = focusOn("pf", "F");
-  env.shared["omni-forge.open"] = '["gitlab","gl.test","g/p","9"]';
+  env.shared["omni-forge.open"] = { tab: "F", key: '["gitlab","gl.test","g/p","9"]' };
   view.tick(cx);
   await settle();
   assert.deepEqual({ ...view.repo }, { kind: "gitlab", host: "gl.test", path: "g/p" });
   assert.deepEqual(env.opened, ["9"]);
   assert.deepEqual(env.detects, ["/w/repo-b"]);
+});
+
+test("shared open: with two full tabs, only the copy that learned the asked tab takes it", async () => {
+  const two = [...panes, { pane: "pg", terminal: null, mod: "omni-forge", tab: "G" }];
+  const mine = setup({ panes: two, focus: focusOn("pf", "F") });
+  const other = setup({ panes: two, focus: focusOn("pf", "F") });
+  mine.view.laidOut(); // laid out while F is focused: F is its tab
+  other.env.focus = { space: "s1", tab: "G", pane: "pg", terminal: null, cwd: null };
+  other.view.laidOut(); // laid out while G is focused
+  other.env.focus = focusOn("pf", "F");
+  assert.equal(mine.view.ownTab, "F");
+  assert.equal(other.view.ownTab, "G");
+  const asked = { tab: "F", key: '["github","github.com","o/x","3"]' };
+  other.env.shared["omni-forge.open"] = asked;
+  other.view.tick(other.cx);
+  assert.deepEqual(other.env.opened, []);
+  assert.equal(other.env.shared["omni-forge.open"], asked);
+  assert.equal(other.view.visible(), false);
+  mine.env.shared["omni-forge.open"] = asked;
+  mine.view.tick(mine.cx);
+  await mine.settle();
+  assert.deepEqual(mine.env.opened, ["3"]);
+  assert.equal(mine.env.shared["omni-forge.open"], null);
+});
+
+test("shared open: own tab unknown and two full tabs: nobody guesses", () => {
+  const two = [...panes, { pane: "pg", terminal: null, mod: "omni-forge", tab: "G" }];
+  const { view, env, cx } = setup({ panes: two });
+  env.shared["omni-forge.open"] = { tab: "F", key: '["github","github.com","o/x","3"]' };
+  view.tick(cx);
+  assert.deepEqual(env.opened, []);
+});
+
+test("laidOut ignores a focused tab that isn't a full tab", () => {
+  const { view, env } = setup({ focus: focusOn("pa", "A") });
+  view.laidOut();
+  assert.equal(view.ownTab, null);
+  env.focus = focusOn("pf", "F");
+  view.laidOut();
+  assert.equal(view.ownTab, "F");
 });

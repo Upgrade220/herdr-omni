@@ -7,7 +7,8 @@
 
 export const MOD = "omni-forge";
 export const LAST_LOC = "omni-forge.last-loc";
-// A watch key the side view leaves for a full tab it just selected; the full view takes it in its tick.
+// { tab, key }: a run the side view asks the full tab `tab` (just selected) to open; that tab's
+// full copy takes it in its tick (mayTakeOpen).
 export const OPEN = "omni-forge.open";
 
 // props.open is a watch key: JSON [kind, host, path, runId].
@@ -41,9 +42,11 @@ export function spaceFullTabs(panes, spaces, spaceId) {
   return tabs.map((t) => t.id).filter((id) => full.has(id));
 }
 
-// Full is visible when the focused tab is a full tab. panes() carries no props, so with several
-// full tabs any of them counts; with none found, the window being active decides.
-export function isVisible({ focused, panes, windowActive }) {
+// Full is visible when the focused tab is its own tab (`ownTab`, once known: see full.js). Before
+// that, panes() carries no props, so with several full tabs any of them counts; with none found,
+// the window being active decides.
+export function isVisible({ focused, panes, windowActive, ownTab = null }) {
+  if (ownTab) return Boolean(focused) && focused.tab === ownTab;
   const tabs = fullTabs(panes);
   if (tabs.length === 0) return Boolean(windowActive);
   return Boolean(focused) && tabs.includes(focused.tab);
@@ -98,4 +101,32 @@ export function lastLocUpdate(current, snap) {
   const next = { cwd: term.cwd, machine: term.machine, branch: term.branch };
   const same = current && current.cwd === next.cwd && (current.machine ?? null) === next.machine && (current.branch ?? null) === next.branch;
   return same ? null : next;
+}
+
+// Whether the layout shows an omni-forge side block (content.mod omni-forge, props.view "side" or
+// unset): neither it nor an ancestor is `hidden`, and every stack on the way has it on its active
+// child (`active`, else the first child). `tree` is layout().
+export function sideVisible(tree) {
+  const isSide = (n) => n?.type === "block" && n.content?.mod === MOD && (n.content.props?.view ?? "side") === "side";
+  const walk = (node) => {
+    if (!node || node.hidden) return false;
+    if (isSide(node)) return true;
+    const children = Array.isArray(node.children) ? node.children : [];
+    if (node.type === "stack") {
+      const active = children.find((c) => c.id === node.active) ?? children[0];
+      return walk(active);
+    }
+    return children.some(walk);
+  };
+  return walk(tree);
+}
+
+// Whether a full copy takes the side view's open request `asked` ({tab, key}): the request's tab
+// is focused and is this copy's own tab. With its own tab not known yet, only when that tab is the
+// one full tab anywhere (so no other copy could be meant).
+export function mayTakeOpen(asked, { focused, panes, ownTab }) {
+  if (!asked?.tab || !asked.key || !focused || focused.tab !== asked.tab) return false;
+  if (ownTab) return ownTab === asked.tab;
+  const tabs = fullTabs(panes);
+  return tabs.length === 1 && tabs[0] === asked.tab;
 }

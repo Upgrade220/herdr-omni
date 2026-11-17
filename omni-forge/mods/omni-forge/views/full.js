@@ -2,14 +2,16 @@
 // Follows the focused terminal's repo and branch; lists runs with a filter, chips and a This branch
 // toggle; a click opens the run detail (views/detail.js) in place. Lists poll only while this tab is
 // shown; every copy also runs the shared watch tick when it owns it (views/repo.js).
-// The side view opens a run here by selecting this tab and setting shared("omni-forge.open").
+// The side view opens a run here by selecting this tab and setting shared("omni-forge.open") to
+// {tab, key}. A copy learns its own tab when it is first laid out (laidOut): a copy in a tab that
+// isn't shown gets no layout, so the focused tab at that moment is the one showing it.
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { theme, focused, panes, props, shared, setShared, checking, window as appWindow } from "herdr";
 import { watchKey } from "../ci/watch.js";
 import { ago } from "./runs.js";
 import { Detail, WATCHABLE } from "./detail.js";
-import { parseOpen, isVisible, nextLoc, OPEN } from "./locate.js";
+import { parseOpen, isVisible, mayTakeOpen, fullTabs, nextLoc, OPEN } from "./locate.js";
 import { RepoView, sameRepo } from "./repo.js";
 import { statusIcon, runPills, button, busyState, message, errorState } from "./ui.js";
 
@@ -21,6 +23,7 @@ export class FullView extends RepoView {
     this.props = (given && Object.keys(given).length ? given : props()) ?? {};
     this.initRepo("full", { placeholder: "Filter runs… (#42, title, branch, author)" });
     this.detail = null;
+    this.ownTab = null;
     // props.open names the repo and run: show them at once, without detection.
     if (this.props.open) this.openKey(this.props.open, cx, { load: !checking() });
     cx.timer.every(TICK_MS, (cx) => this.tick(cx));
@@ -45,8 +48,15 @@ export class FullView extends RepoView {
     this.openRun({ id: open.runId }, cx, { load });
   }
 
+  // The root's first size report: this copy is on screen, so the focused tab, if a full tab, is ours.
+  laidOut() {
+    if (this.ownTab) return;
+    const f = focused();
+    if (f && fullTabs(panes()).includes(f.tab)) this.ownTab = f.tab;
+  }
+
   visible() {
-    return isVisible({ focused: focused(), panes: panes(), windowActive: appWindow().active });
+    return isVisible({ focused: focused(), panes: panes(), windowActive: appWindow().active, ownTab: this.ownTab });
   }
 
   // ---- polling -----------------------------------------------------------------
@@ -57,9 +67,9 @@ export class FullView extends RepoView {
     this.watchTick(cx);
     if (!this.visible()) return;
     const asked = shared(OPEN);
-    if (asked) {
+    if (asked && mayTakeOpen(asked, { focused: focused(), panes: panes(), ownTab: this.ownTab })) {
       setShared(OPEN, null);
-      this.openKey(asked, cx);
+      this.openKey(asked.key, cx);
     }
     if (!this.provider) return;
     const now = Date.now();
@@ -108,7 +118,7 @@ export class FullView extends RepoView {
     } else {
       body = this.listView(t);
     }
-    return v_flex().id("full-root").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
+    return v_flex().id("full-root").on_size_change((_size, _cx) => this.laidOut()).size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .child(header).child(body);
   }
 

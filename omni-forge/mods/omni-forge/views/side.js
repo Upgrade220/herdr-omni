@@ -4,9 +4,9 @@
 // for it), or in a new one.
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, focused, panes, spaces, setShared, checking, run as runCommand, window as appWindow } from "herdr";
+import { theme, focused, panes, spaces, layout, setShared, checking, run as runCommand } from "herdr";
 import { watchKey } from "../ci/watch.js";
-import { spaceFullTabs, OPEN, MOD } from "./locate.js";
+import { spaceFullTabs, sideVisible, OPEN, MOD } from "./locate.js";
 import { RepoView } from "./repo.js";
 import { statusIcon, statusPill, pill, button, busyState, message, errorState } from "./ui.js";
 import { dur } from "./runs.js";
@@ -19,16 +19,17 @@ export class SideView extends RepoView {
     cx.timer.every(TICK_MS, (cx) => this.tick(cx));
   }
 
-  // The panel can't tell whether it is shown, so the window being active stands in for it.
+  // Shown when the layout shows the side block (not hidden, the active child of its stacks).
   pollVisible() {
-    return Boolean(appWindow().active);
+    return sideVisible(layout());
   }
 
+  // Hidden, only the location and the watch tick run; the list waits until the panel shows.
   tick(cx) {
     if (checking()) return;
     this.follow(cx);
     this.watchTick(cx);
-    if (this.provider && Date.now() >= this.listAt) this.loadList(cx);
+    if (this.provider && this.pollVisible() && Date.now() >= this.listAt) this.loadList(cx);
   }
 
   refresh(cx) {
@@ -37,14 +38,14 @@ export class SideView extends RepoView {
   }
 
   // Opens a run in this space's full tab: the focused one when it is a full tab, else the first;
-  // the full view takes the key in its next tick. Without a full tab, a new one opens on the run.
+  // that tab's full copy takes {tab, key} in its next tick. Without a full tab, a new one opens on it.
   openInFull(r) {
     const key = watchKey({ ...this.repo, runId: r.id });
     const f = focused();
     const tabs = spaceFullTabs(panes(), spaces(), f?.space);
     const tab = tabs.includes(f?.tab) ? f.tab : tabs[0];
     if (tab) {
-      setShared(OPEN, key);
+      setShared(OPEN, { tab, key });
       runCommand("tab.select", { id: tab });
     } else {
       runCommand("tab.new", { mod: MOD, props: { view: "full", open: key } });

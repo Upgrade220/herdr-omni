@@ -4,7 +4,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, Popover, Textarea, TextareaState } from "gpui-base";
 import {
-  theme, props, agents, knownAgents, hc, notify, openOverlay, closeOverlay, checking, run as runCommand,
+  theme, props, agents, knownAgents, hc, notify, openOverlay, closeOverlay, checking, shared, setShared, run as runCommand,
 } from "herdr";
 import { providerFor } from "../forge/providers.js";
 import { cleanLog } from "../ci/log.js";
@@ -13,18 +13,13 @@ import { MOD } from "./locate.js";
 import { button, mono } from "./ui.js";
 
 const LOG_BYTES = 64000; // well over 120 lines of most logs
+// The last choice's key. Shared state, not localStorage: each dialog is a new copy of the mod and
+// localStorage is per copy.
 const LAST_AGENT = "omni-forge.send.agent";
 const WIDTH = 640;
 const HEIGHT = 560;
 
 const errorText = (e) => [String(e?.message ?? e), e?.hint].filter(Boolean).join("\n");
-
-function readLast() {
-  try { return localStorage.getItem(LAST_AGENT); } catch { return null; }
-}
-function remember(key) {
-  try { localStorage.setItem(LAST_AGENT, key); } catch { /* not remembered: no harm */ }
-}
 
 /**
  * Opens the dialog for a failed job. `repo` {kind, host, path}; `run` the Run; `job` the Job;
@@ -62,7 +57,7 @@ export class SendView {
     this.knownLoading = true;
     this.logLoading = true;
     this.logError = null;
-    this.lastKey = readLast();
+    this.lastKey = shared(LAST_AGENT) ?? null;
     this.selected = null;
     this.menuOpen = false;
     this.sending = false;
@@ -128,13 +123,14 @@ export class SendView {
     const text = this.prompt.value().trim();
     if (!choice || !text || this.sending || this.logLoading) return;
     if (choice.kind === "new") {
-      try {
-        runCommand("tab.new", { argv: choice.run, task: text, ...(this.props.folder ? { folder: this.props.folder } : {}) });
-        remember(choice.key);
-        this.close();
-      } catch (e) {
-        notify({ title: `Could not start ${choice.label.replace(/^New /, "")}`, body: errorText(e), level: "error" });
-      }
+      // run() reports nothing back (it returns null); Herdr itself toasts a launch that fails, so
+      // the dialog closes once the tab is asked for.
+      const args = { argv: choice.run, task: text };
+      if (this.props.folder) args.folder = this.props.folder;
+      if (this.props.space) args.space = this.props.space;
+      runCommand("tab.new", args);
+      setShared(LAST_AGENT, choice.key);
+      this.close();
       return;
     }
     this.sending = true;
@@ -143,7 +139,7 @@ export class SendView {
       try {
         const res = await hc(["send", choice.terminal, text]);
         if (res.code !== 0) throw new Error(res.stderr.trim() || `hc send exited with ${res.code}`);
-        remember(choice.key);
+        setShared(LAST_AGENT, choice.key);
         this.close();
       } catch (e) {
         notify({ title: `Sending to ${choice.label} failed`, body: errorText(e), level: "error" });

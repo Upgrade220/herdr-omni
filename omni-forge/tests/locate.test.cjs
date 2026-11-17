@@ -2,7 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { load } = require("./load.cjs");
 const L = load(["views/locate.js"]);
-const { parseOpen, fullTabs, spaceFullTabs, isVisible, terminalLoc, nextLoc, lastLocUpdate } = L;
+const { parseOpen, fullTabs, spaceFullTabs, isVisible, mayTakeOpen, sideVisible, terminalLoc, nextLoc, lastLocUpdate } = L;
 const plain = (x) => JSON.parse(JSON.stringify(x));
 
 // Space s1: tab A has terminals in repo-a (pane pa) and repo-b (pane pb); tab F is a full tab.
@@ -92,4 +92,57 @@ test("spaceFullTabs: full tabs of one space, in tab order", () => {
   assert.deepEqual(plain(spaceFullTabs(more, two, "s1")), ["F"]);
   assert.deepEqual(plain(spaceFullTabs(more, two, "s2")), ["G"]);
   assert.deepEqual(plain(spaceFullTabs(panes, spaces, "nope")), []);
+});
+
+// A synthetic layout: a sidebar, the tab area, and a right panel stack with Files and CI.
+const tree = ({ panelHidden = false, active = "ci", sideProps } = {}) => ({
+  id: "root", type: "row", children: [
+    { id: "sidebar", type: "block", content: { mod: "better-sidebar" } },
+    { id: "main", type: "block", content: { tab: "active" } },
+    { id: "panel", type: "column", hidden: panelHidden, children: [
+      { id: "panel-body", type: "stack", active, children: [
+        { id: "files", type: "block", content: { mod: "better-files" } },
+        { id: "ci", type: "block", content: { mod: "omni-forge", ...(sideProps ? { props: sideProps } : {}) } },
+      ] },
+    ] },
+  ],
+});
+
+test("sideVisible: shown, panel hidden, another stack child active", () => {
+  assert.equal(sideVisible(tree()), true);
+  assert.equal(sideVisible(tree({ sideProps: { view: "side" } })), true);
+  assert.equal(sideVisible(tree({ panelHidden: true })), false);
+  assert.equal(sideVisible(tree({ active: "files" })), false);
+});
+
+test("sideVisible: a hidden block, a stack without active, no side block", () => {
+  const t = tree();
+  t.children[2].children[0].children[1].hidden = true;
+  assert.equal(sideVisible(t), false);
+  const first = tree();
+  delete first.children[2].children[0].active;
+  assert.equal(sideVisible(first), false); // the first child (files) shows
+  first.children[2].children[0].children.reverse();
+  assert.equal(sideVisible(first), true);
+  assert.equal(sideVisible(tree({ sideProps: { view: "full" } })), false);
+  assert.equal(sideVisible(null), false);
+});
+
+test("mayTakeOpen: only the copy whose own tab is the asked, focused tab", () => {
+  const two = [...panes, { pane: "pg", terminal: null, mod: "omni-forge", tab: "G" }];
+  const asked = { tab: "F", key: "k" };
+  const onF = snapAt("pf", "F").focused;
+  assert.equal(mayTakeOpen(asked, { focused: onF, panes: two, ownTab: "F" }), true);
+  assert.equal(mayTakeOpen(asked, { focused: onF, panes: two, ownTab: "G" }), false);
+  assert.equal(mayTakeOpen(asked, { focused: snapAt("pa", "A").focused, panes: two, ownTab: "F" }), false);
+  // Own tab unknown: only when F is the one full tab anywhere.
+  assert.equal(mayTakeOpen(asked, { focused: onF, panes: two, ownTab: null }), false);
+  assert.equal(mayTakeOpen(asked, { focused: onF, panes, ownTab: null }), true);
+  assert.equal(mayTakeOpen("k", { focused: onF, panes, ownTab: "F" }), false);
+});
+
+test("isVisible: a known own tab decides", () => {
+  const two = [...panes, { pane: "pg", terminal: null, mod: "omni-forge", tab: "G" }];
+  assert.equal(isVisible({ focused: snapAt("pf", "F").focused, panes: two, windowActive: true, ownTab: "G" }), false);
+  assert.equal(isVisible({ focused: snapAt("pf", "F").focused, panes: two, windowActive: true, ownTab: "F" }), true);
 });
