@@ -1,0 +1,1 @@
+{"data":{"project":{"pipelines":{"nodes":[{"iid":"43","id":"gid://gitlab/Ci::Pipeline/1043","status":"SUCCESS_WITH_WARNINGS","source":"PUSH","ref":"main","duration":5,"createdAt":"2026-01-04T10:00:00Z","path":"/grp/app/-/pipelines/1043","user":{"username":"alice"},"commit":{"title":"Tidy"},"mergeRequest":null}]}}}}

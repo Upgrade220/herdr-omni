@@ -4,6 +4,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { load } = require("./load.cjs");
 const { gitlabProvider, chipOf } = load(["forge/cli.js", "forge/model.js", "forge/gitlab.js"]);
+const { execFile } = require("node:child_process");
+const os = require("node:os");
 const fixture = (n) => fs.readFileSync(path.join(__dirname, "fixtures", n), "utf8");
 
 function recorder(reply) {
@@ -22,6 +24,7 @@ test("listRuns on a branch merges branch and MR pipelines, newest first", async 
   assert.equal(runs.length, 2);
   assert.deepEqual([...runs.map((r) => r.number)], [42, 41]);
   assert.equal(runs[0].request, 12);
+  assert.equal(runs[0].branch, "feat-x");
   assert.equal(runs[0].status, "manual");
   assert.equal(runs[0].id, "1042");
   assert.equal(runs[0].author, "bob");
@@ -32,6 +35,8 @@ test("listRuns on a branch merges branch and MR pipelines, newest first", async 
   assert.equal(calls[0].cmd, "glab");
   assert.ok(calls[0].args.includes("p=grp/app"));
   assert.ok(calls[0].args.some((a) => a.startsWith("query=") && a.includes("mergeRequests")));
+  const q = calls[0].args.find((a) => a.startsWith("query="));
+  assert.ok(q.includes("sourceBranches") && q.includes("opened") && q.includes("ref:"));
 });
 
 test("chipOf", () => {
@@ -104,4 +109,86 @@ test("downloadArtifact writes a zip named after project, job and artifact", asyn
 
 test("capabilities", () => {
   assert.deepEqual({ ...gitlabProvider(async () => ({}), repo).capabilities }, { play: true, retryFailed: false, liveLog: true });
+});
+
+test("listRuns dedupes a branch pipeline that is also an MR pipeline and keeps request", async () => {
+  const { exec } = recorder(() => ({ code: 0, stdout: fixture("gitlab-list-dedup.json"), stderr: "" }));
+  const runs = await gitlabProvider(exec, repo).listRuns({ branch: "feat-x" });
+  assert.equal(runs.length, 2);
+  const r = runs.find((x) => x.id === "1042");
+  assert.equal(r.request, 12);
+  assert.equal(r.branch, "feat-x");
+});
+
+test("listRuns without a branch sends no ref or mergeRequests and maps warnings to success", async () => {
+  const { exec, calls } = recorder(() => ({ code: 0, stdout: fixture("gitlab-list-all.json"), stderr: "" }));
+  const runs = await gitlabProvider(exec, repo).listRuns({ branch: null });
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].status, "success");
+  assert.equal(runs[0].branch, "main");
+  assert.equal(runs[0].request, null);
+  const q = calls[0].args.find((a) => a.startsWith("query="));
+  assert.ok(!q.includes("mergeRequests(") && !q.includes("ref:"));
+});
+
+test("CANCELING maps to running", async () => {
+  const body = JSON.parse(fixture("gitlab-list-all.json"));
+  body.data.project.pipelines.nodes[0].status = "CANCELING";
+  const { exec } = recorder(() => ({ code: 0, stdout: JSON.stringify(body), stderr: "" }));
+  assert.equal((await gitlabProvider(exec, repo).listRuns({})) [0].status, "running");
+});
+
+test("jobLog compares bytes, not characters, and drops a broken leading char", async () => {
+  const fake = "\uFFFD" + "ы".repeat(5); // tail -c 11 of a Cyrillic log: 1 cut byte + 10 bytes
+  const { exec } = recorder(() => ({ code: 0, stdout: fake, stderr: "" }));
+  const r = await gitlabProvider(exec, repo).jobLog("70", { maxBytes: 10 });
+  assert.equal(r.truncated, true);
+  assert.equal(r.text, "ы".repeat(5));
+  const fit = await gitlabProvider(recorder(() => ({ code: 0, stdout: "ы".repeat(5), stderr: "" })).exec, repo).jobLog("70", { maxBytes: 10 });
+  assert.equal(fit.truncated, false);
+});
+
+test("sh failures keep status and hints", async () => {
+  const { exec } = recorder(() => ({ code: 1, stdout: "", stderr: "HTTP 401 Unauthorized" }));
+  await assert.rejects(gitlabProvider(exec, repo).jobLog("70", { maxBytes: 10 }), (e) => e.status === 401 && e.hint.includes("glab auth login --hostname git.example.org"));
+  const slow = async () => { throw new Error("command timed out"); };
+  await assert.rejects(gitlabProvider(slow, repo).jobLog("70", { maxBytes: 10 }), (e) => /timed out/.test(e.hint));
+});
+
+// Real scripts against a fake glab on PATH.
+function realExec(binDir) {
+  return (cmd, args) => new Promise((resolve) => {
+    execFile(cmd, args, { env: { ...process.env, PATH: binDir + ":" + process.env.PATH } }, (e, stdout, stderr) =>
+      resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, stdout, stderr }));
+  });
+}
+function fakeGlab(body) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fg-"));
+  fs.writeFileSync(path.join(dir, "glab"), "#!/bin/sh\n" + body + "\n", { mode: 0o755 });
+  return dir;
+}
+
+test("real jobLog script: a failing glab is an error, not an empty log", async () => {
+  const bin = fakeGlab('echo "HTTP 404 Not Found" >&2; exit 1');
+  await assert.rejects(gitlabProvider(realExec(bin), repo).jobLog("70", { maxBytes: 10 }), (e) => e.status === 404);
+});
+
+test("real jobLog script: tails bytes and flags truncation", async () => {
+  const bin = fakeGlab("printf '0123456789ABCDEF'");
+  const r = await gitlabProvider(realExec(bin), repo).jobLog("70", { maxBytes: 10 });
+  assert.equal(r.truncated, true);
+  assert.equal(r.text, "6789ABCDEF");
+});
+
+test("real downloadArtifact script: failure removes the partial file", async () => {
+  const bin = fakeGlab('printf partial; echo "HTTP 403" >&2; exit 1');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dl-"));
+  await assert.rejects(gitlabProvider(realExec(bin), repo).downloadArtifact({ name: "archive.zip", jobId: "70" }, dir), (e) => e.status === 403);
+  assert.deepEqual([...fs.readdirSync(dir)], []);
+  const ok = fakeGlab("printf zipdata");
+  const out = await gitlabProvider(realExec(ok), repo).downloadArtifact({ name: "archive.zip", jobId: "70" }, dir);
+  assert.equal(fs.readFileSync(out, "utf8"), "zipdata");
+  const empty = fakeGlab("true");
+  await assert.rejects(gitlabProvider(realExec(empty), repo).downloadArtifact({ name: "archive.zip", jobId: "70" }, dir), (e) => e.name === "ForgeError");
+  assert.equal(fs.existsSync(out), false);
 });

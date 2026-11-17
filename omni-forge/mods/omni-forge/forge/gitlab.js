@@ -1,8 +1,9 @@
 // GitLab provider: GraphQL for list/detail, REST (glab api) for actions, shell pipes for log/artifact.
-import { cli, ForgeError } from "./cli.js";
+import { cli, shell, ForgeError } from "./cli.js";
 
 const STATUS = {
   RUNNING: "running",
+  CANCELING: "running",
   PENDING: "pending",
   CREATED: "pending",
   WAITING_FOR_RESOURCE: "pending",
@@ -10,6 +11,7 @@ const STATUS = {
   SCHEDULED: "pending",
   MANUAL: "manual",
   SUCCESS: "success",
+  SUCCESS_WITH_WARNINGS: "success",
   FAILED: "failed",
   CANCELED: "canceled",
   SKIPPED: "skipped",
@@ -18,15 +20,24 @@ const mapStatus = (s) => STATUS[String(s ?? "").toUpperCase()] ?? "other";
 const lastId = (gid) => String(gid).split("/").pop();
 const num = (v) => (v == null || v === "" ? null : Number(v));
 
-const PIPELINE_FIELDS = "iid id status source ref duration createdAt path user{username} commit{title} mergeRequest{iid}";
+const PIPELINE_FIELDS = "iid id status source ref duration createdAt path user{username} commit{title} mergeRequest{iid sourceBranch}";
 const JOB_FIELDS = "id name status manualJob allowFailure duration webPath artifacts{nodes{name fileType size}}";
 
 function listQuery(branch, limit) {
   const ref = branch ? `, ref: ${JSON.stringify(branch)}` : "";
   const mrs = branch
-    ? ` mergeRequests(sourceBranches: [${JSON.stringify(branch)}], state: opened){nodes{iid pipelines(first: ${limit}){nodes{${PIPELINE_FIELDS}}}}}`
+    ? ` mergeRequests(sourceBranches: [${JSON.stringify(branch)}], state: opened){nodes{iid sourceBranch pipelines(first: ${limit}){nodes{${PIPELINE_FIELDS}}}}}`
     : "";
   return `query($p: ID!){ project(fullPath: $p){ pipelines(first: ${limit}${ref}){nodes{${PIPELINE_FIELDS}}}${mrs} } }`;
+}
+
+function utf8Len(s) {
+  let n = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+  }
+  return n;
 }
 
 export function gitlabProvider(exec, { host, path }) {
@@ -42,27 +53,13 @@ export function gitlabProvider(exec, { host, path }) {
 
   const rest = (endpoint) => cli(exec, "gitlab", host, ["api", "--hostname", host, "-X", "POST", endpoint], { raw: true });
 
-  // Runs a shell script via exec directly (pipes/redirects); failures become ForgeError like cli().
-  const sh = async (script, args) => {
-    let res;
-    try {
-      res = await exec("sh", ["-c", script, "sh", ...args], { timeout: 60000 });
-    } catch (e) {
-      throw new ForgeError(String(e?.message ?? e), null, "Could not run glab. Install it (https://gitlab.com/gitlab-org/cli) and make sure it is on PATH.");
-    }
-    if (res.code !== 0) {
-      const stderr = (res.stderr ?? "").trim();
-      const m = stderr.match(/HTTP\s+(\d{3})/i) ?? stderr.match(/\b(401|403|404|429)\b/);
-      throw new ForgeError(stderr || `glab exited with ${res.code}`, m ? Number(m[1]) : null, "");
-    }
-    return res.stdout ?? "";
-  };
+  const sh = (script, args) => shell(exec, "gitlab", host, script, args);
 
-  const toRun = (p, requestIid) => ({
+  const toRun = (p, requestIid, mrBranch) => ({
     id: lastId(p.id),
     number: num(p.iid),
     title: p.commit?.title ?? "",
-    branch: p.ref ?? "",
+    branch: p.mergeRequest?.sourceBranch ?? mrBranch ?? p.ref ?? "",
     status: mapStatus(p.status),
     trigger: String(p.source ?? "").toLowerCase(),
     author: p.user?.username ?? "",
@@ -93,7 +90,12 @@ export function gitlabProvider(exec, { host, path }) {
       const byId = new Map();
       for (const p of project.pipelines?.nodes ?? []) byId.set(p.id, toRun(p));
       for (const mr of project.mergeRequests?.nodes ?? []) {
-        for (const p of mr.pipelines?.nodes ?? []) if (!byId.has(p.id)) byId.set(p.id, toRun(p, mr.iid));
+        for (const p of mr.pipelines?.nodes ?? []) {
+          const run = toRun(p, mr.iid, mr.sourceBranch);
+          const seen = byId.get(p.id);
+          if (!seen) byId.set(p.id, run);
+          else if (seen.request == null) Object.assign(seen, { request: run.request, branch: run.branch });
+        }
       }
       return [...byId.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     },
@@ -121,9 +123,13 @@ export function gitlabProvider(exec, { host, path }) {
     },
 
     async jobLog(jobId, { maxBytes = 200000 } = {}) {
-      const out = await sh('glab api --hostname "$1" "$2" | tail -c "$3"', [host, `projects/${enc}/jobs/${lastId(jobId)}/trace`, String(maxBytes + 1)]);
-      const truncated = out.length > maxBytes;
-      return { text: truncated ? out.slice(out.length - maxBytes) : out, truncated, available: true };
+      // Capture first, tail after: a pipe would hide glab's exit code behind tail's.
+      const out = await sh('out=$(glab api --hostname "$1" "$2") || exit $?; printf %s "$out" | tail -c "$3"', [host, `projects/${enc}/jobs/${lastId(jobId)}/trace`, String(maxBytes + 1)]);
+      // tail -c counts bytes; a cut multibyte char decodes to leading U+FFFD, which is dropped.
+      const truncated = utf8Len(out) > maxBytes;
+      let text = out.replace(/^\uFFFD+/, "");
+      while (utf8Len(text) > maxBytes) text = text.slice(text.codePointAt(0) > 0xffff ? 2 : 1);
+      return { text, truncated, available: true };
     },
 
     async retryRun(id) { await rest(`projects/${enc}/pipelines/${lastId(id)}/retry`); },
@@ -136,7 +142,7 @@ export function gitlabProvider(exec, { host, path }) {
       const jobId = lastId(artifact.jobId);
       const name = String(artifact.name).replace(/\.zip$/i, "");
       const file = `${dir}/${path.split("/").pop()}-${jobId}-${name}.zip`;
-      await sh('glab api --hostname "$1" "$2" > "$3"', [host, `projects/${enc}/jobs/${jobId}/artifacts`, file]);
+      await sh('glab api --hostname "$1" "$2" > "$3" || { rc=$?; rm -f "$3"; exit $rc; }; [ -s "$3" ] || { rm -f "$3"; echo "empty artifact download" >&2; exit 1; }', [host, `projects/${enc}/jobs/${jobId}/artifacts`, file]);
       return file;
     },
   };
