@@ -1,10 +1,25 @@
-// Pure CI log cleanup: strips GitLab section markers, \r overwrites, GitHub timestamps and
+// Pure CI log cleanup: strips GitLab section markers, \r overwrites, GitHub and GitLab timestamps and
 // non-colour escapes; turns SGR colours into spans. `fg` is an ansi index 0..15 (theme().ansiN).
 
-const ERROR = /(^|\b)(error|failed|ERROR|FAIL)\b|##\[error\]/;
+// Exception names ("ReferenceError:") count too, so they win over the runner's later "failed job" line.
+const ERROR = /(^|\b)(error|failed|ERROR|FAIL)\b|##\[error\]|\b[A-Z]\w*Error:/;
 const SECTION = /section_(?:start|end):\d+:[^\r\n\x1b]*\r?(?:\x1b\[0K)?/g;
 const STAMP = /^\d{4}-\d\d-\d\dT[\d:.]+Z /;
+// GitLab runner 18+: "<ts> <stream 2 hex><O|E>" then " " for a new line or "+" to continue the last.
+const GITLAB_STAMP = /^\d{4}-\d\d-\d\dT[\d:.]+Z [0-9a-f]{2}[OE]([ +])/;
 const ESCAPE = /\x1b\[([0-9;?]*)([A-Za-z])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Z0-9]|\x1b[=>78]/g;
+
+// Raw lines to log lines: drops timestamps and joins GitLab continuations.
+function logicalLines(text) {
+  const out = [];
+  for (const raw of String(text ?? "").split("\n")) {
+    const m = GITLAB_STAMP.exec(raw);
+    if (!m) out.push(raw.replace(STAMP, ""));
+    else if (m[1] === "+" && out.length) out[out.length - 1] += raw.slice(m[0].length);
+    else out.push(raw.slice(m[0].length));
+  }
+  return out;
+}
 
 export function cleanLog(text) {
   const lines = [];
@@ -12,8 +27,7 @@ export function cleanLog(text) {
   let fg;
   let bold = false;
 
-  for (const rawLine of String(text ?? "").split("\n")) {
-    let line = rawLine.replace(STAMP, "");
+  for (let line of logicalLines(text)) {
     const hadMarker = SECTION.test(line);
     SECTION.lastIndex = 0;
     line = line.replace(SECTION, "");

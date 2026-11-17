@@ -48,3 +48,73 @@ test("findJob matches numeric and gid ids", () => {
   assert.equal(findJob(detail, "456").url, "u2");
   assert.equal(findJob(detail, 999), null);
 });
+
+// Live, Herdr hands a pane's init an empty object and the props come from props().
+test("LogView reads props() when init is given an empty object", async () => {
+  const given = { view: "log", kind: "gitlab", host: "gl.test", path: "g/p", runId: "5", jobId: "gid://gitlab/Ci::Build/9", name: "unit" };
+  const asked = [];
+  const { LogView } = load(["ci/log.js", "views/log.js"], {
+    props: () => given,
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+    providerFor: (p) => ({
+      capabilities: { liveLog: true },
+      jobLog: async (id) => { asked.push(["log", p.host, id]); return { text: "hi\n", truncated: false, available: true }; },
+      runDetail: async () => ({ run: {}, groups: [] }),
+    }),
+  });
+  const pending = [];
+  const cx = { timer: { every() {} }, notify() {}, spawn(fn) { pending.push(fn(cx)); } };
+  const view = new LogView();
+  view.init({}, cx);
+  await Promise.all(pending);
+  assert.equal(view.props.name, "unit");
+  assert.deepEqual(asked, [["log", "gl.test", "gid://gitlab/Ci::Build/9"]]);
+});
+
+// GitLab runner 18+ timestamped logs: "<ts> <stream><O|E>[+]"; "+" continues the line before.
+test("GitLab timestamped log: prefix stripped, + lines joined, sections still cleaned", () => {
+  const raw = [
+    "2026-01-01T00:00:00.000001Z 00O \x1b[0KRunning with gitlab-runner\x1b[0;m",
+    "2026-01-01T00:00:00.000002Z 00O section_start:1:prepare\r\x1b[0K",
+    "2026-01-01T00:00:00.000003Z 00O+\x1b[0K\x1b[36;1mPreparing\x1b[0;m",
+    "2026-01-01T00:00:00.000004Z 01E npm ERR! oops",
+    "2026-01-01T00:00:00.000005Z 01O part one",
+    "2026-01-01T00:00:00.000006Z 01O+ and two",
+    "",
+  ].join("\n");
+  const { lines } = cleanLog(raw);
+  assert.deepEqual([...lines.map(plain)], ["Running with gitlab-runner", "Preparing", "npm ERR! oops", "part one and two"]);
+  assert.equal(lines[1].spans[0].fg, 6);
+});
+
+test("firstError: an exception name beats the runner's later 'failed job' line", () => {
+  const raw = "ok\nReferenceError: isCI is not defined\n    at x\nUploading artifacts for failed job\n";
+  assert.equal(cleanLog(raw).firstError, 1);
+});
+
+// The list only exists from the frame after the log arrives, so the jump waits for a timer.
+test("LogView jumps to the first error once, after the list has been drawn", async () => {
+  const scrolls = [];
+  const afters = [];
+  const { LogView } = load(["ci/log.js", "views/log.js"], {
+    props: () => ({}),
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item: (i, how) => scrolls.push([i, how]) }) },
+    providerFor: () => ({
+      capabilities: { liveLog: true },
+      jobLog: async () => ({ text: "a\nb\nTypeError: x\n", truncated: false, available: true }),
+      runDetail: async () => ({ run: {}, groups: [] }),
+    }),
+  });
+  const pending = [];
+  const cx = { timer: { every() {}, after: (ms, fn) => afters.push(fn) }, notify() {}, spawn(fn) { pending.push(fn(cx)); } };
+  const view = new LogView();
+  view.init({ jobId: "1", name: "j" }, cx);
+  await Promise.all(pending.splice(0));
+  assert.equal(scrolls.length, 0);
+  afters.splice(0).forEach((fn) => fn(cx));
+  assert.deepEqual(scrolls, [[2, "center"]]);
+  view.refresh(cx);
+  await Promise.all(pending.splice(0));
+  afters.splice(0).forEach((fn) => fn(cx));
+  assert.equal(scrolls.length, 1);
+});

@@ -3,7 +3,7 @@
 // Lines render through a virtual list with a fixed row height, so a 2 MB log stays cheap.
 import { div } from "gpui-kit";
 import { v_flex, h_flex, v_virtual_list, VirtualListScrollHandle, Scrollbar } from "gpui-base";
-import { theme, settings } from "herdr";
+import { theme, settings, props } from "herdr";
 import { providerFor } from "../forge/providers.js";
 import { cleanLog, findJob } from "../ci/log.js";
 
@@ -14,8 +14,9 @@ const HEADER = 40;
 const NOTE = 28;
 
 export class LogView {
-  init(props, cx) {
-    this.props = props ?? {};
+  init(given, cx) {
+    // Read props once: live, Herdr gives a pane copy an empty object here, so fall back to props().
+    this.props = (given && Object.keys(given).length ? given : props()) ?? {};
     this.provider = providerFor(this.props);
     this.scroll = VirtualListScrollHandle.new();
     this.log = { lines: [], firstError: null };
@@ -70,9 +71,11 @@ export class LogView {
       }
       const after = [this.loaded, this.live, this.available, this.truncated, this.error, this.url, this.lastText];
       if (after.some((v, i) => v !== before[i])) cx.notify();
+      // The list is first drawn on the frame after this notify; a scroll asked before then is lost.
       if (!this.scrolled && this.log.firstError !== null) {
         this.scrolled = true;
-        this.scroll.scroll_to_item(this.log.firstError, "center");
+        const index = this.log.firstError;
+        cx.timer.after(150, () => this.scroll.scroll_to_item(index, "center"));
       }
     });
   }
