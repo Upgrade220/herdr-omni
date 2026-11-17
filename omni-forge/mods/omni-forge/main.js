@@ -1,8 +1,9 @@
 // omni-forge: CI for the current space's GitHub or GitLab project. A layout puts one copy per
-// block, and `view` in its props picks which part. The views are stubs until their tasks land.
+// block, and `view` in its props picks which part. `side` is a stub until its task lands.
 import { View, div } from "gpui-kit";
 import { props } from "herdr";
 import { LogView } from "./views/log.js";
+import { FullView } from "./views/full.js";
 
 const stub = (name) => class {
   init() {}
@@ -11,7 +12,7 @@ const stub = (name) => class {
   }
 };
 
-const PARTS = { side: stub("side"), full: stub("full"), log: LogView };
+const PARTS = { side: stub("side"), full: FullView, log: LogView };
 
 export default class OmniForge extends View {
   init(given, cx) {
