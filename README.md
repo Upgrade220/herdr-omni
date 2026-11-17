@@ -7,7 +7,7 @@ taken from other people's mod repos and adjusted for how I work.
 
 | Mod | What it does | Based on |
 |---|---|---|
-| _none yet_ | | |
+| [better-sidebar](better-sidebar/) | Spaces and agents sidebar with branches, worktrees and PR status; folding tree | [munza/herdr-mods better-sidebar](https://github.com/munza/herdr-mods/tree/main/better-sidebar) |
 
 ## Install
 
