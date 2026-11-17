@@ -2,6 +2,7 @@
 // block, and `view` in its props picks which part. The views are stubs until their tasks land.
 import { View, div } from "gpui-kit";
 import { props } from "herdr";
+import { LogView } from "./views/log.js";
 
 const stub = (name) => class {
   init() {}
@@ -10,7 +11,7 @@ const stub = (name) => class {
   }
 };
 
-const PARTS = { side: stub("side"), full: stub("full"), log: stub("log") };
+const PARTS = { side: stub("side"), full: stub("full"), log: LogView };
 
 export default class OmniForge extends View {
   init(given, cx) {
