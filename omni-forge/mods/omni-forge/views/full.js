@@ -111,7 +111,7 @@ export class FullView {
     const last = shared(LAST_LOC) ?? null;
     const update = lastLocUpdate(last, snap);
     if (update) setShared(LAST_LOC, update);
-    const step = nextLoc({ loc: this.loc, seenTerm: this.seenTerm, lastLoc: this.loc ? null : last }, snap);
+    const step = nextLoc({ loc: this.loc, seenTerm: this.seenTerm, lastLoc: this.loc ? null : (update ?? last) }, snap);
     this.seenTerm = step.seenTerm;
     if (step.move) {
       this.loc = step.move;

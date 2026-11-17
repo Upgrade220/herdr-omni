@@ -63,15 +63,28 @@ test("last-loc seeds a new tab", async () => {
 });
 
 test("a non-terminal focus keeps the location; a terminal focus records last-loc", async () => {
-  const { view, env, cx, settle } = setup({ focus: focusOn("pa", "A") });
+  // Starts on repo-b: the tab/space fallback would give repo-a, so staying proves the keep rule.
+  const { view, env, cx, settle } = setup({ focus: focusOn("pb", "A") });
   view.follow(cx);
   await settle();
-  assert.equal(env.shared["omni-forge.last-loc"].cwd, "/w/repo-a");
+  assert.equal(env.shared["omni-forge.last-loc"].cwd, "/w/repo-b");
   env.focus = focusOn("pf", "F");
   view.follow(cx);
   await settle();
-  assert.deepEqual(env.detects, ["/w/repo-a"]);
-  assert.equal(view.repo.path, "o/repo-a");
+  assert.deepEqual(env.detects, ["/w/repo-b"]);
+  assert.equal(view.repo.path, "o/repo-b");
+});
+
+test("first tick: a focused terminal beats a stale last-loc", async () => {
+  const { view, env, cx, settle } = setup({ focus: focusOn("pb", "A"), shared: { "omni-forge.last-loc": { cwd: "/w/repo-a", machine: null, branch: "main" } } });
+  view.follow(cx);
+  await settle();
+  assert.deepEqual(env.detects, ["/w/repo-b"]);
+  assert.equal(view.repo.path, "o/repo-b");
+  assert.equal(env.shared["omni-forge.last-loc"].cwd, "/w/repo-b");
+  view.follow(cx); // refocusing B keeps it, with no extra detection
+  await settle();
+  assert.deepEqual(env.detects, ["/w/repo-b"]);
 });
 
 test("Try again re-detects the same location", async () => {
