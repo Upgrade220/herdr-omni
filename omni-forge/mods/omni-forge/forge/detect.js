@@ -13,23 +13,32 @@ export function forgeKind(host) {
   return host === "github.com" ? "github" : "gitlab";
 }
 
+const unreachable = (e) => ({ error: "Cannot reach machine", hint: String(e?.message ?? e) });
+
 async function git(exec, cwd, machine, args) {
-  return exec("git", args, { cwd, on: machine });
+  try {
+    return await exec("git", args, { cwd, on: machine });
+  } catch (e) {
+    return { code: -1, stdout: "", stderr: "", failure: unreachable(e) };
+  }
 }
 
 export async function detectRepo(cwd, machine, exec) {
   let res = await git(exec, cwd, machine, ["remote", "get-url", "origin"]);
+  if (res.failure) return res.failure;
   if (res.code !== 0 && /not a git repository/i.test(res.stderr ?? "")) {
     return { error: "Not a Git repository", hint: "Open a space inside a Git checkout." };
   }
   if (res.code !== 0) {
     const list = await git(exec, cwd, machine, ["remote"]);
+    if (list.failure) return list.failure;
     const first = list.code === 0 ? list.stdout.split("\n").map((s) => s.trim()).find(Boolean) : null;
     if (!first) {
       if (list.code !== 0 && /not a git repository/i.test(list.stderr ?? "")) return { error: "Not a Git repository", hint: "Open a space inside a Git checkout." };
       return { error: "No Git remote", hint: "Add one with: git remote add origin <url>" };
     }
     res = await git(exec, cwd, machine, ["remote", "get-url", first]);
+    if (res.failure) return res.failure;
     if (res.code !== 0) return { error: "No Git remote", hint: (res.stderr ?? "").trim() };
   }
   const url = res.stdout.trim();

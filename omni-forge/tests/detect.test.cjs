@@ -98,3 +98,17 @@ test("cli: unknown failure keeps status null", async () => {
   const exec = async () => ({ code: 1, stdout: "", stderr: "boom" });
   await assert.rejects(cli(exec, "github", "github.com", []), (e) => e.status === null && e.message.includes("boom"));
 });
+
+test("detectRepo: unreachable machine returns an error result", async () => {
+  const exec = async () => { throw new Error("machine offline"); };
+  const r = await detectRepo("/x", "box", exec);
+  assert.equal(r.error, "Cannot reach machine");
+  assert.match(r.hint, /machine offline/);
+});
+
+test("cli: rejected exec becomes a ForgeError with install or timeout hint", async () => {
+  const missing = async () => { throw new Error("No such file or directory: glab"); };
+  await assert.rejects(cli(missing, "gitlab", "h", []), (e) => e instanceof ForgeError && e.status === null && /Install/.test(e.hint) && /glab/.test(e.hint));
+  const slow = async () => { throw new Error("command timed out"); };
+  await assert.rejects(cli(slow, "github", "github.com", []), (e) => e instanceof ForgeError && /timed out/.test(e.hint));
+});

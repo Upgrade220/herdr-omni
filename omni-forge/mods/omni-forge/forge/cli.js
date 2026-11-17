@@ -26,7 +26,17 @@ function hintFor(kind, host, stderr, status) {
 
 export async function cli(exec, kind, host, args, { timeout = 30000, raw = false } = {}) {
   const tool = kind === "gitlab" ? "glab" : "gh";
-  const res = await exec(tool, args, { timeout });
+  let res;
+  try {
+    res = await exec(tool, args, { timeout });
+  } catch (e) {
+    const msg = String(e?.message ?? e);
+    const timedOut = /time(d)? ?out/i.test(msg);
+    const hint = timedOut
+      ? `${tool} timed out. Check the network or VPN and refresh.`
+      : `Could not run ${tool}. Install it (${kind === "gitlab" ? "https://gitlab.com/gitlab-org/cli" : "https://cli.github.com"}) and make sure it is on PATH.`;
+    throw new ForgeError(msg, null, hint);
+  }
   if (res.code !== 0) {
     const stderr = (res.stderr ?? "").trim();
     const status = httpStatus(stderr);
