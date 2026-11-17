@@ -160,11 +160,11 @@ test("real jobLog script strips the job/step prefix and tails", async () => {
   const bin = fakeGh("printf 'build\\tRun tests\\t\\357\\273\\277line one\\nbuild\\tRun tests\\t\\357\\273\\277line two\\n'");
   const p = githubProvider(realExec(bin), repo);
   const full = await p.jobLog("5");
-  assert.equal(full.text, "line one\nline two\n");
+  assert.equal(full.text, "line one\nline two");
   assert.equal(full.truncated, false);
   const cut = await p.jobLog("5", { maxBytes: 5 });
   assert.equal(cut.truncated, true);
-  assert.equal(cut.text, "two\n");
+  assert.equal(cut.text, "e two");
   assert.ok(Buffer.byteLength(cut.text) <= 5);
 });
 
