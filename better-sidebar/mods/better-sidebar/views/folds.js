@@ -83,3 +83,60 @@ export function StatusDot(status, id) {
   const dot = div().size(6).rounded(3).flex_none().bg(theme()[status]).tooltip(status);
   return id ? dot.id(id) : dot;
 }
+
+// The Spaces tab's rows (from Spaces.ordered()) seen as a tree: which rows can
+// fold, what is open by default, what a folded row hides and shows.
+// A space with worktrees starts open; any other row starts folded.
+export class SpaceTree {
+  constructor(folds, rows, hasItems) {
+    this.folds = folds;
+    this.rows = rows;
+    this.hasItems = hasItems;
+  }
+
+  row(id) {
+    return this.rows.find((r) => r.w.id === id);
+  }
+
+  kids(id) {
+    return this.rows.filter((r) => r.parent === id);
+  }
+
+  byDefault(id) {
+    return (this.row(id)?.kids ?? 0) > 0;
+  }
+
+  open(id) {
+    return this.folds.isOpen(id, this.byDefault(id));
+  }
+
+  toggle(id) {
+    this.folds.toggle(id, this.byDefault(id));
+  }
+
+  hasChildren(r) {
+    return r.kids > 0 || this.hasItems(r.w);
+  }
+
+  // A worktree inside a folded space.
+  hidden(r) {
+    return Boolean(r.parent) && !this.open(r.parent);
+  }
+
+  // Whether a row's own tabs show beneath it.
+  tabsOpen(r) {
+    return this.open(r.w.id);
+  }
+
+  // The rows to open so the tab `tabId` shows, outermost first.
+  path(tabId) {
+    const r = this.rows.find((x) => (x.w.tabs ?? []).some((tab) => tab.id === tabId));
+    if (!r) return [];
+    return r.parent ? [r.parent, r.w.id] : [r.w.id];
+  }
+
+  // A folded space speaks for its worktrees too.
+  status(r) {
+    return mostUrgent([r.w.status, ...this.kids(r.w.id).map((k) => k.w.status)]);
+  }
+}

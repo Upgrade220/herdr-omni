@@ -335,7 +335,7 @@ export class Spaces {
       out.push({ ...r, tree: null, kids: kids.length });
       if (!first) continue;
       placed.add(r.g.repo);
-      kids.forEach((k, n) => out.push({ ...k, tree: n === kids.length - 1 ? "└─" : "├─" }));
+      kids.forEach((k, n) => out.push({ ...k, tree: n === kids.length - 1 ? "└─" : "├─", parent: r.w.id }));
     }
     return out;
   }
@@ -344,7 +344,9 @@ export class Spaces {
   grouped(t, collapsed) {
     const rows = this.ordered();
     // `under`, set by the lists view, adds rows beneath a space: its agents.
-    const draw = (r) => (collapsed ? [this.compact(r, t)] : [this.row(r, t), ...(this.under?.(r) ?? [])]);
+    // `hidden` (herdr-omni, lists view): a row inside a folded one.
+    const draw = (r) =>
+      collapsed ? [this.compact(r, t)] : this.hidden?.(r) ? [] : [this.row(r, t), ...(this.under?.(r) ?? [])];
     const remote = [
       ...new Set([
         ...rows.map((r) => r.w.machine).filter(Boolean),
@@ -670,13 +672,16 @@ export class Spaces {
     return h_flex()
       .gap(9)
       .items_center()
+      // `lead` / `trail` (herdr-omni, lists view): the fold chevron and a folded row's status dot.
+      .children(this.lead?.(w) ?? [])
       .when(Boolean(tree), (el) => el.when(!this.under, (e) => e.pl(22)).child(Icon("branch", 13).text_color(t.dim)))
       .when(!tree, (el) => el.child(this.avatar(w, t)))
       .child(
         div().min_w(0).max_w(150).truncate().tooltip(w.name).text_color(t.foreground).child(w.name),
       )
       .child(this.branchName(g, w.name, t))
-      .child(this.gitTail(g, w.active, t, w));
+      .child(this.gitTail(g, w.active, t, w))
+      .children(this.trail?.(w) ?? []);
   }
 
   avatar(w, t) {

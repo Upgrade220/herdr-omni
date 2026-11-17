@@ -6,6 +6,7 @@ import { agents, focused, theme, setAgentOrder } from "herdr";
 import { Spaces } from "./spaces.js";
 import { Agents } from "./agents.js";
 import { TEXT, Badge, Rail } from "./ui.js";
+import { Folds, SpaceTree, Chevron, StatusDot } from "./folds.js";
 
 const TABS = ["spaces", "agents"];
 
@@ -17,6 +18,7 @@ export class Lists {
     this.agents.init(props, cx);
     const saved = localStorage.getItem("lists.tab");
     this.tab = TABS.includes(saved) ? saved : "spaces";
+    this.folds = new Folds();
   }
 
   pick(tab, cx) {
@@ -38,6 +40,9 @@ export class Lists {
     this.spaces.under = null;
     this.spaces.quiet = null;
     this.spaces.above = null;
+    this.spaces.lead = null;
+    this.spaces.trail = null;
+    this.spaces.hidden = null;
     // The rail has no room for tabs: both lists, as numbers.
     if (!this.spaces.settings.combined || collapsed)
       return root
@@ -70,13 +75,21 @@ export class Lists {
     // Every tab shows: a tab with agents as its agents, any other as itself.
     const shownTab = focused()?.tab;
     const plain = (tab) => !all.some((a) => a.tab === tab.id);
-    this.spaces.under = ({ w, tree, kids }) => {
-      const items = w.tabs.flatMap((tab) =>
+    const itemsOf = (w) =>
+      w.tabs.flatMap((tab) =>
         plain(tab)
           ? tab.settled ? [] : [{ tab }]
           : all.filter((a) => a.tab === tab.id && !pins.includes(a.address)).map((a) => ({ a })),
       );
-      order.push(...items.filter((x) => x.a).map((x) => x.a.address));
+    // herdr-omni: every row folds; agents in folded rows keep their place in the order.
+    const folding = new SpaceTree(this.folds, this.spaces.ordered(), (w) => itemsOf(w).length > 0);
+    this.folds.follow(shownTab, folding.path(shownTab));
+    for (const r of folding.rows) order.push(...itemsOf(r.w).filter((x) => x.a).map((x) => x.a.address));
+    this.wireFolds(folding);
+    this.spaces.under = (r) => {
+      if (!folding.tabsOpen(r)) return [];
+      const { w, tree, kids } = r;
+      const items = itemsOf(w);
       const before = tree ? [tree.startsWith("└") ? "" : "│"] : [];
       return items.flatMap((x, i) => {
         const last = i === items.length - 1 && !kids;
@@ -92,6 +105,25 @@ export class Lists {
     const body = this.spaces.body(t, false);
     setAgentOrder(order);
     return root.child(body);
+  }
+
+  // herdr-omni: the chevron and folded status dot on space and worktree rows.
+  wireFolds(tree) {
+    this.spaces.lead = (w) => {
+      const r = tree.row(w.id);
+      if (!r || !tree.hasChildren(r)) return [];
+      const onToggle = (cx) => {
+        tree.toggle(w.id);
+        cx.notify();
+      };
+      return [Chevron({ id: `fold-${w.id}`, open: tree.open(w.id), onToggle })];
+    };
+    this.spaces.trail = (w) => {
+      const r = tree.row(w.id);
+      if (!r || !tree.hasChildren(r) || tree.open(w.id)) return [];
+      return [StatusDot(tree.status(r), `dot-${w.id}`)].filter(Boolean);
+    };
+    this.spaces.hidden = (r) => tree.hidden(r);
   }
 
   // Tabs side by side from the left, the picked one filled.

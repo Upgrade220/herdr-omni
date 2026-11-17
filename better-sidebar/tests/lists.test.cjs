@@ -7,7 +7,7 @@ const vm = require("node:vm");
 const runtime = path.join(__dirname, "../mods/better-sidebar");
 
 function element() {
-  const node = { nodes: [], handlers: {} };
+  const node = { nodes: [], handlers: {}, attributes: {} };
   const proxy = new Proxy(node, {
     get(target, key) {
       if (key in target) return target[key];
@@ -16,7 +16,10 @@ function element() {
       if (key === "when") return (c, build) => (c && build(proxy), proxy);
       return (...args) => {
         if (key === "id") target.id = args[0];
-        if (key === "on_click") target.handlers.click = args[0];
+        if (key === "on_click") target.handlers.click = args.at(-1);
+        if (key === "on_mouse_down" || key === "on_mouse_up")
+          target.handlers[`${key.slice(3)}_${args[0]}`] = args.at(-1);
+        target.attributes[key] = args;
         return proxy;
       };
     },
@@ -24,14 +27,14 @@ function element() {
   return proxy;
 }
 
-async function harness({ settings = {}, tab = null, panes = [], sharedValues = {} } = {}) {
+async function harness({ settings = {}, tab = null, panes = [], sharedValues = {}, spaces: given, focusedTab = null, git = {}, stored: saved = {} } = {}) {
   const pending = [];
-  const stored = { "lists.tab": tab };
+  const stored = { "lists.tab": tab, ...saved };
   const live = { order: [] };
   const tabOf = (id) => ({ id, name: id });
-  const spaces = [
-    { id: "shop", name: "shop", folder: "/shop", tabs: [tabOf("a"), tabOf("b"), tabOf("d")] },
-    { id: "docs", name: "docs", folder: "/docs", tabs: [tabOf("c")] },
+  const spaces = given ?? [
+    { id: "shop", name: "shop", folder: "/shop", status: "blocked", tabs: [tabOf("a"), tabOf("b"), tabOf("d")] },
+    { id: "docs", name: "docs", folder: "/docs", status: "done", tabs: [tabOf("c")] },
   ];
   const agent = (address, space, tab, status) => ({
     address,
@@ -44,7 +47,8 @@ async function harness({ settings = {}, tab = null, panes = [], sharedValues = {
     pane: `p-${address}`,
     seq: 1,
   });
-  const agents = [agent("t1", "shop", "a", "idle"), agent("t2", "docs", "c", "done"), agent("t3", "shop", "b", "blocked")];
+  const agents = [agent("t1", "shop", "a", "idle"), agent("t2", "docs", "c", "done"), agent("t3", "shop", "b", "blocked"), agent("t4", "wt", "e", "blocked")]
+    .filter((a) => spaces.some((s) => s.id === a.space));
   const cx = { notify() {}, stop_propagation() {}, timer: { every() {} }, focus_handle: () => ({}), spawn: (fn) => pending.push(fn(cx)) };
   const context = {
     Date, JSON, Map, Set, Math, console,
@@ -55,7 +59,7 @@ async function harness({ settings = {}, tab = null, panes = [], sharedValues = {
     agents: () => agents,
     terminals: () => [],
     panes: () => panes,
-    focused: () => null,
+    focused: () => (focusedTab ? { tab: focusedTab } : null),
     machines: () => [],
     theme: () => new Proxy({}, { get: (_t, k) => String(k) }),
     layout: () => ({ id: "sidebar", size: { px: 268 } }),
@@ -75,7 +79,7 @@ async function harness({ settings = {}, tab = null, panes = [], sharedValues = {
   };
   vm.createContext(context);
   // Each file in its own scope, as a module is; its exports become globals for the next.
-  for (const file of ["settings.js", "git/pr-status.js", "git/checkouts.js", "views/find-node.js", "views/ui.js", "views/spaces.js", "views/agents.js", "views/lists.js"]) {
+  for (const file of ["settings.js", "git/pr-status.js", "git/checkouts.js", "views/find-node.js", "views/ui.js", "views/folds.js", "views/spaces.js", "views/agents.js", "views/lists.js"]) {
     const source = fs.readFileSync(path.join(runtime, file), "utf8").replace(/^import\s+[\s\S]*?;\n/gm, "");
     const names = [...source.matchAll(/^export (?:async )?(?:class|function|const) (\w+)/gm)].map((m) => m[1]);
     vm.runInContext(`Object.assign(globalThis, (() => { ${source.replaceAll("export ", "")}\nreturn { ${names.join(", ")} }; })());`, context);
@@ -83,15 +87,19 @@ async function harness({ settings = {}, tab = null, panes = [], sharedValues = {
   const mod = new context.Lists();
   mod.init({}, cx);
   while (pending.length) await Promise.all(pending.splice(0));
+  for (const [folder, info] of Object.entries(git)) mod.spaces.git[JSON.stringify([null, folder])] = info;
   return { mod, live, stored, cx };
 }
+
+// herdr-omni: spaces start folded; upstream's expectations hold with them opened.
+const OPEN = { "spaces.folds": JSON.stringify({ shop: true, docs: true }) };
 
 const find = (node, id) => (node?.id === id ? node : node?.nodes?.map((n) => find(n, id)).find(Boolean));
 const ids = (node, out = []) => (node?.id && out.push(node.id), (node?.nodes ?? []).forEach((n) => ids(n, out)), out);
 const text = (node) => (typeof node === "string" ? node : (node?.nodes ?? []).map(text).join(" "));
 
-test("Spaces shows each space's tabs beneath it, as their agents where they have any, and next-agent keys follow that order", async () => {
-  const { mod, live } = await harness();
+test("an open space shows its tabs beneath it, as their agents where they have any, and next-agent keys follow that order", async () => {
+  const { mod, live } = await harness({ stored: OPEN });
   const drawn = ids(mod.render()).filter((id) => /^(space-(shop|docs)|ag-t\d|tab-\w)$/.test(id));
   assert.deepEqual(drawn, ["space-shop", "ag-t1", "ag-t3", "tab-d", "space-docs", "ag-t2"]);
   // Its tab's title, then its program, quietly.
@@ -126,7 +134,7 @@ test("combined off puts spaces above agents, without tabs", async () => {
 });
 
 test("in Spaces a pinned agent sits above every space", async () => {
-  const { mod } = await harness();
+  const { mod } = await harness({ stored: OPEN });
   mod.agents.setPins(["t3"]);
   const drawn = ids(mod.render()).filter((id) => /^ag-t\d$/.test(id));
   assert.deepEqual(drawn, ["ag-t3", "ag-t1", "ag-t2"]);
@@ -144,8 +152,57 @@ test("a mod's tab shows the icon the mod publishes, and a tab with neither keeps
   const { mod } = await harness({
     panes: [{ pane: "pd", tab: "d", mod: "better-files" }],
     sharedValues: { "mod-icons": { "better-files": "mods/better-files/icons/file.svg" } },
+    stored: OPEN,
   });
   assert.match(text(find(mod.render(), "tab-d")), /svg:mods\/better-files\/icons\/file\.svg/);
-  const { mod: bare } = await harness();
+  const { mod: bare } = await harness({ stored: OPEN });
   assert.doesNotMatch(text(find(bare.render(), "tab-d")), /svg:/);
+});
+
+// ── herdr-omni: folding ─────────────────────────────────────────────────────
+
+const drawnRows = (root) => ids(root).filter((id) => /^(space-(?!new$)[\w:-]+|ag-t\d|tab-\w)$/.test(id));
+const stopper = () => {
+  const cx = { stopped: false, notify() {}, stop_propagation: () => (cx.stopped = true) };
+  return cx;
+};
+
+test("spaces start folded, and next-agent keys still reach the agents inside", async () => {
+  const { mod, live } = await harness();
+  assert.deepEqual(drawnRows(mod.render()), ["space-shop", "space-docs"]);
+  assert.deepEqual(live.order, ["t1", "t3", "t2"]);
+});
+
+test("clicking a space's chevron shows its tabs, and that is kept after a restart", async () => {
+  const { mod, stored } = await harness();
+  find(mod.render(), "fold-shop").handlers.click({}, stopper());
+  const expected = ["space-shop", "ag-t1", "ag-t3", "tab-d", "space-docs"];
+  assert.deepEqual(drawnRows(mod.render()), expected);
+  assert.equal(JSON.parse(stored["spaces.folds"]).shop, true);
+  const { mod: again } = await harness({ stored: { "spaces.folds": stored["spaces.folds"] } });
+  assert.deepEqual(drawnRows(again.render()), expected);
+});
+
+test("pressing a chevron neither selects nor drags its space", async () => {
+  const { mod } = await harness();
+  const chevron = find(mod.render(), "fold-shop");
+  for (const name of ["mouse_down_left", "mouse_up_left"]) {
+    const cx = stopper();
+    chevron.handlers[name]({}, cx);
+    assert.ok(cx.stopped, name);
+  }
+});
+
+test("a folded space shows its most urgent status, and opened it shows none", async () => {
+  const { mod } = await harness();
+  assert.ok(find(mod.render(), "dot-shop"));
+  assert.ok(find(mod.render(), "dot-docs"));
+  find(mod.render(), "fold-shop").handlers.click({}, stopper());
+  assert.equal(find(mod.render(), "dot-shop"), undefined);
+});
+
+test("the shown tab's space opens by itself", async () => {
+  const { mod } = await harness({ focusedTab: "b" });
+  assert.ok(find(mod.render(), "ag-t3"));
+  assert.equal(find(mod.render(), "ag-t2"), undefined);
 });
