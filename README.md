@@ -1,6 +1,6 @@
 # herdr-omni
 
-My mods for the [Herdr app](https://herdr.dev): some written from scratch, most
+My mods for the [Herdr app](https://herdr.dev): some written from scratch, some
 taken from other people's mod repos and adjusted for how I work. Every borrowed mod
 keeps its git history and a live link to where it came from, so upstream fixes can
 still be pulled in.
