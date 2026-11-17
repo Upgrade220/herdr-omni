@@ -1,0 +1,5 @@
+{"data":{"project":{"pipeline":{"iid":"42","id":"gid://gitlab/Ci::Pipeline/1042","status":"MANUAL","source":"PUSH","ref":"feat-x","duration":null,"createdAt":"2026-01-03T10:00:00Z","path":"/grp/app/-/pipelines/1042","user":{"username":"bob"},"commit":{"title":"Fix widget"},"mergeRequest":null,
+"stages":{"nodes":[
+{"name":"build","jobs":{"nodes":[{"id":"gid://gitlab/Ci::Build/70","name":"compile","status":"SUCCESS","manualJob":false,"allowFailure":false,"duration":30,"webPath":"/grp/app/-/jobs/70","artifacts":{"nodes":[{"name":"archive.zip","fileType":"ARCHIVE","size":"2048"},{"name":"job.log","fileType":"TRACE","size":"100"}]}}]}},
+{"name":"deploy","jobs":{"nodes":[{"id":"gid://gitlab/Ci::Build/77","name":"ship","status":"MANUAL","manualJob":true,"allowFailure":true,"duration":null,"webPath":"/grp/app/-/jobs/77","artifacts":{"nodes":[]}}]}}
+]}}}}}
