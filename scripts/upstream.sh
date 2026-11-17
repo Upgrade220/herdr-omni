@@ -33,8 +33,14 @@ split_branch() {
   if [ "$path" = "." ]; then
     sha=$(git rev-parse "$remote/$branch")
   else
-    sha=$(git subtree split --quiet --prefix="$path" "$remote/$branch") \
-      || die "could not split '$path' from $url ($branch)"
+    # subtree split wants the folder in the checkout, so split from a
+    # throwaway worktree sitting on the upstream commit.
+    local wt
+    wt=$(mktemp -d)
+    git worktree add --quiet --detach "$wt" "$remote/$branch"
+    sha=$(git -C "$wt" subtree split --quiet --prefix="$path" HEAD) || sha=
+    git worktree remove --force "$wt"
+    [ -n "$sha" ] || die "could not split '$path' from $url ($branch)"
   fi
   git branch -f "split/$name" "$sha" >/dev/null
 }
