@@ -62,6 +62,8 @@ class BetterFiles extends View {
     this.markdownDefault = DEFAULT_SETTINGS.markdown;
     this.hunks = [];
     this.openHunks = new Set();
+    // The preview's position, so an `#anchor` link can scroll it. A handle must be made here.
+    this.previewScroll = ScrollHandle.new();
     this.syncViewer(cx);
     cx.timer.every(SYNC_MS, (cx) => this.syncViewer(cx));
     cx.spawn(async (cx) => {
@@ -133,10 +135,13 @@ class BetterFiles extends View {
   }
 
   // A closing tab takes its copies of images with it, and any copy still being made when it
-  // closes goes as soon as it's done.
+  // closes goes as soon as it's done. Pictures from the web stay: every tab shares them, and
+  // they're downloaded again after a day.
   async close() {
     this.closed = true;
-    await this.dropCopies([this.imageCopy, ...(this.markdownCopies?.values() ?? [])].filter(Boolean));
+    await this.dropCopies(
+      [this.imageCopy, ...(this.markdownCopies?.values() ?? [])].filter((c) => c && !c.startsWith("mods/better-files/.cache/web-")),
+    );
   }
 
   // Keeps up with the focused pane, tabs closing, and questions left by the menu.
