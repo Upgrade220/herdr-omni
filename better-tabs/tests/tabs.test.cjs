@@ -93,6 +93,7 @@ function harness(config = {}) {
       "actions/engine.js",
       "actions/toolbar.js",
       "views/ui.js",
+      "views/tab-label.js",
       "views/panel-memory.js",
       "views/arrangement.js",
       "views/drags.js",
@@ -606,4 +607,31 @@ test("a quick press does not drag, even if the pointer slips, and still selects 
   h.find(el, "tab-t2").handlers.on_mouse_move({ ...slip, position: { x: 150, y: 15 } }, h.cx);
   h.find(el, "tab-t2").handlers["on_mouse_up:left"]({ position: { x: 150, y: 15 } }, h.cx);
   assert.deepEqual(plain(h.calls), [{ name: "tab.select", args: { id: "t2" } }]);
+});
+
+// herdr-omni: unnamed tabs show their title.
+const strings = (el) => (typeof el === "string" ? el : (el?.kids ?? []).map(strings).join(" "));
+
+test("an unnamed tab shows its terminal title, with the zoom mark; a named one its name", () => {
+  const h = harness();
+  h.setSpaces([{ id: "a", active: true, tabs: [
+    { id: "t1", name: "1", named: false, active: true, zoomed: true },
+    { id: "t2", name: "Release", named: true },
+  ] }]);
+  h.setPanes([
+    { pane: "p1", tab: "t1", terminal: "t1", title: "✳ Fix totals", program: { name: "Claude Code", key: "claude", agent: true }, cwd: "/w/app" },
+    { pane: "p2", tab: "t2", terminal: "t2", title: "✳ Other", program: { name: "Claude Code", key: "claude", agent: true }, cwd: "/w/app" },
+  ]);
+  const root = h.tabs.render(h.cx);
+  assert.match(strings(h.find(root, "tab-t1")), /Fix totals Z/);
+  assert.match(strings(h.find(root, "tab-t2")), /Release/);
+});
+
+test("a dragged unnamed tab's preview shows its title too", () => {
+  const h = harness();
+  h.setSpaces([{ id: "a", active: true, tabs: [{ id: "t1", name: "1", named: false, active: true }, { id: "t2", name: "2", named: false }] }]);
+  h.setPanes([{ pane: "p1", tab: "t1", terminal: "t1", title: "✳ Fix totals", program: { name: "Claude Code", key: "claude", agent: true }, cwd: "/w/app" }]);
+  const el = h.tabs.render(h.cx);
+  h.find(el, "tab-t1").handlers["on_mouse_down:left"]({ position: { x: 20, y: 15 }, click_count: 1 }, h.cx);
+  assert.equal(h.tabs.tabDrag.label, "Fix totals");
 });

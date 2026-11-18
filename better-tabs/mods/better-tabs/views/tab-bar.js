@@ -4,6 +4,7 @@ import { h_flex } from "gpui-base";
 import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
 import { find } from "../actions/engine.js";
 import { TEXT, Icon, IconButton, DropLine } from "./ui.js";
+import { tabLabel } from "./tab-label.js";
 
 const CHAR_WIDTH = 8; // Roughly, to size the drag preview.
 const TAB_HEIGHT = 29;
@@ -46,6 +47,8 @@ export const tabBarMethods = {
 
   tabItem(tab, space, ps, t) {
     const icon = this.tabIcon(tab, ps, t);
+    // herdr-omni: an unnamed tab shows its title (views/tab-label.js), not its number.
+    const label = tabLabel(tab, ps);
     const drag = this.tabDrag;
     return h_flex()
       .id(`tab-${tab.id}`)
@@ -81,8 +84,8 @@ export const tabBarMethods = {
         div()
           .max_w(this.settings.tabs.max_width)
           .truncate()
-          .tooltip(tab.name)
-          .child(tab.zoomed ? `${tab.name} Z` : tab.name),
+          .tooltip(label)
+          .child(tab.zoomed ? `${label} Z` : label),
       )
       .when(tab.status === "working", (el) =>
         el.child(Icon("spinner", 12).text_color(t.working).spin(900)),

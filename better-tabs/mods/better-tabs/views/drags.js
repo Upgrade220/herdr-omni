@@ -1,7 +1,8 @@
 // Dragging tabs and toolbar actions. GPUI gives pointer events, not a drag payload:
 // the source keeps its slot, a copy follows the pointer, and a line shows where it
 // would land. Nothing moves until release.
-import { spaces, run, shared, setShared, closeOverlay, props } from "herdr";
+import { spaces, panes, run, shared, setShared, closeOverlay, props } from "herdr";
+import { tabLabel } from "./tab-label.js";
 import { duration } from "../settings.js";
 import { hideToolbarAction, tabMoveIndex } from "../actions/toolbar.js";
 
@@ -25,7 +26,7 @@ export const dragMethods = {
     const point = event.position ?? { x: 0, y: 0 };
     this.tabDrag = {
       id: tab.id,
-      label: tab.name,
+      label: tabLabel(tab, panes()), // herdr-omni: as the tab shows it
       space: spaces().find((s) => s.active)?.id,
       start: point,
       point,
