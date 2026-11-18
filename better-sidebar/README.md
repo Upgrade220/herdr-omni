@@ -119,6 +119,7 @@ This copy is adapted from [munza/herdr-mods](https://github.com/munza/herdr-mods
 - A folded row shows a dot for the most urgent agent inside (blocked, then done, then working). A folded space's dot includes its worktrees.
 - The rows down to the tab you're looking at open by themselves, once per tab change. Folding them again sticks.
 - A space with worktrees puts its own tabs under a node named for its branch, above the worktrees.
+- A tab nobody named shows its terminal's title (else its program, else its folder) instead of Herdr's "1", "2"; display only (`views/tab-label.js`).
 - Fold choices are kept across restarts (`localStorage`, `spaces.folds`). Next/previous agent still reaches agents in folded rows.
 
 The code is in `views/folds.js`, with small hooks (`lead`, `trail`, `hidden`, `lit`) in `views/spaces.js` and `views/lists.js`. Tests: `tests/folds.test.cjs` and the end of `tests/lists.test.cjs`.

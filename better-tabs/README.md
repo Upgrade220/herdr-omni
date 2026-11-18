@@ -97,3 +97,9 @@ herdr-app check "$PWD/mods/better-tabs"
 ```
 
 See [LICENSE](../LICENSE) and [NOTICE](../NOTICE) for attribution.
+
+## Changes in herdr-omni
+
+This copy is adapted from [munza/herdr-mods](https://github.com/munza/herdr-mods/tree/main/better-tabs) (v3.0.0):
+
+- A tab nobody named shows its terminal's title (else its program, else its folder, else a mod's title) instead of Herdr's "1", "2", in the pill, its tooltip and the drag preview. Display only: Herdr's names are unchanged. The rules are in `views/tab-label.js`, kept identical to Better Sidebar's.
