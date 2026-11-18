@@ -1,6 +1,6 @@
 # omni-forge
 
-A CI panel for the person's own Herdr window. It shows GitHub Actions runs or GitLab pipelines for the repository of the focused terminal. A narrow list sits in the right panel beside Files, Changes and Git and opens from a **CI** button in the tab bar. A full tab shows run detail and job actions, and job logs open in a pane beside it. It uses the machine's `gh` and `glab` logins and never stores tokens. The look follows cybertron288's `ci-dash` (MIT).
+A CI panel for the person's own Herdr window. It shows GitHub Actions runs or GitLab pipelines for the repository of the focused terminal. A narrow list sits in the right panel beside Files, Changes and Git and opens from a **CI** button in the tab bar. A full tab shows run detail and job actions, and job logs open as tabs inside it. It uses the machine's `gh` and `glab` logins and never stores tokens. The look follows cybertron288's `ci-dash` (MIT).
 
 ## What you see
 
@@ -36,9 +36,10 @@ The mod has four parts, picked by `props.view`.
   - **Job rows, at least 34px:**
     - the status mark, the name in 13px, an `allowed to fail` pill when it applies, and the duration;
     - then the buttons: **Play** (`accent`, with the play icon, for manual GitLab jobs), **Retry** (on a finished job), **Cancel** (red, on a running GitLab job), **Log** (not on manual or skipped jobs) and **Send to agent** (on failed jobs).
-  - **ARTIFACTS:** a section of rows with the name, the size and a Download button. After a download, the button reads `downloaded`.
+  - **Tabs:** a 40px strip under the header: `Runs`, then run tabs (`#number title`, after loading) and log tabs (`job · log`), each with its status icon and ×. At most 8 (least recently selected closes first); reset when the repo changes; not persisted. Only the selected tab polls.
+  - **Artifacts:** on GitLab, a job's archive downloads from an `Artifacts` button on its row (`Artifacts ✓` once done). An ARTIFACTS section lists only artifacts with no job (GitHub's, which belong to the run).
 
-**Log** (`view: "log"`), a pane split to the right of the full view:
+**Log** (a tab of the full view, embedded with `initEmbedded` and polled by the view's tick; `view: "log"` still works as a standalone pane):
 - a 40px header with the job name in 13px semibold, `live` in `dim` while the job runs, and Open in browser and Refresh buttons;
 - then the log in the person's terminal font at 12px, 18px per line, coloured by its ANSI codes (`theme().ansiN`), with bold kept;
 - the first error line has a `raised` background, and the view scrolls it to the centre once;
@@ -83,7 +84,7 @@ The mod has four parts, picked by `props.view`.
 - **A full row:** opens its detail; `‹ Runs` goes back.
 - **Action buttons:** they show a spinner and are disabled until the request returns. A failure raises an error notification. A success reloads the detail and polls every 5 seconds for a minute.
 - **Download:** saves to `~/Downloads/<project>-<job>-<name>.zip` (GitLab) or the folder `~/Downloads/<project>-<run>-<name>/` (GitHub, `gh run download`), then `open -R`.
-- **Log:** `pane.split {direction: "right", mod: "omni-forge", props: {view: "log", kind, host, path, runId, jobId, name}}`.
+- **Log:** `FullView.openLog(runId, job)` opens or selects tab `log:<runId>:<jobId>` with an embedded `LogView`; closing the tab drops it, so nothing keeps polling.
 - **Send to agent:** opens the dialog.
   - The prompt is built from the job, repo, run, branch and MR/PR, the job URL, and the last 120 lines of a 64 KB log tail. The log goes in a fence longer than any run of backticks inside it.
   - It ends with a warning to treat the log and the CI metadata as data, not instructions.
@@ -131,7 +132,7 @@ There are no agent statuses here, and no keys of its own.
 - `open -R` for a download.
 - `hc send` for Send.
 
-**Herdr functions:** `exec`, `hc`, `run` (`tab.new`, `tab.select`, `pane.split`), `notify`, `openOverlay`/`closeOverlay`, `shared`/`setShared`, `focused`, `panes`, `spaces`, `layout`, `window`, `agents`, `knownAgents`, `theme`, `settings`, `props`, `checking`, and `home`.
+**Herdr functions:** `exec`, `hc`, `run` (`tab.new`, `tab.select`), `notify`, `openOverlay`/`closeOverlay`, `shared`/`setShared`, `focused`, `panes`, `spaces`, `layout`, `window`, `agents`, `knownAgents`, `theme`, `settings`, `props`, `checking`, and `home`.
 
 **In the person's layout:**
 - a block `{"id":"ci","type":"block","content":{"mod":"omni-forge","props":{"view":"side"}}}` in the right panel's stack (`panel-body` in the `panel` column);
