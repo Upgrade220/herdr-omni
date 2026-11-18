@@ -32,11 +32,11 @@ I don't want (herdr-forge: whole-window layout, dashboards like milestones/veloc
 
 ```
 side (~360px)                      full (own tab)
-┌ CI  group/app        ⟳ ┐      ┌ CI  group/app                              ⟳ ┐
+┌ CI  group/app           ⟳ ┐      ┌ CI  group/app                                 ⟳ ┐
 │ 🔍 Filter…   This branch ✓│      │ 🔍 Filter runs…                    This branch ✓ │
 │ All 30 ●Run 1 ●Failed 2   │      │ All 30  ● Running 1  ● Failed 2  ● Passed 26  …  │
 │ ⟳ Fix totals rounding     │      │ ⟳ Fix totals rounding               #81231  2m   │
-│   ⑂ fix/totals  running 4m  │      │   ⑂ fix/totals-rounding  running  4m 12s  MR !412  │
+│   ⑂ fix/sums  running 4m  │      │   ⑂ fix/sums-rounding  running  4m 12s  MR !412  │
 │ ✕ Bump deps    test:unit  │      │ ✕ Bump deps                          #81190  1h  │
 └───────────────────────────┘      └──────────────────────────────────────────────────┘
 ```
