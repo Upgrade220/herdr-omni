@@ -131,3 +131,41 @@ test("tick: non-404 error keeps watch and counts", async () => {
   assert.equal(t.notes.length, 0);
   assert.equal(t.watches.keys().length, 1);
 });
+
+// A list fetch that began before the finish can re-add the run as running; it must not notify twice.
+test("finish leaves a tombstone: a stale add after finish does not notify again", async () => {
+  const t = setup(async () => ({ run: run("success") }));
+  await watchTick(t.args);
+  assert.equal(t.notes.length, 1);
+  t.watches.add(t.k, run("running"), 0); // same clock as the tick (now: () => 0)
+  assert.deepEqual(plain(t.watches.keys()), []);
+  await watchTick(t.args);
+  assert.equal(t.notes.length, 1);
+});
+
+test("tombstones are pruned after 6h, then the key can be watched again", async () => {
+  const store = mem({});
+  const w = new Watches(store);
+  const k = watchKey(id);
+  w.add(k, run("running"), 0);
+  assert.equal(w.update(k, run("success"), 1000), "finished");
+  assert.ok(k in store.peek());
+  w.add(k, run("running"), 1000 + 6 * 3600 * 1000);
+  assert.deepEqual(plain(w.keys()), []);
+  await watchTick({ watches: w, providerFor: () => { throw new Error("not polled"); }, notify: () => {}, now: () => 1000 + 6 * 3600 * 1000 + 1 });
+  assert.equal(k in store.peek(), false);
+  w.add(k, run("running"), 1000 + 6 * 3600 * 1000 + 2);
+  assert.equal(w.keys().length, 1);
+});
+
+test("tick notifies before marking done, and marks done even if notify throws", async () => {
+  const t = setup(async () => ({ run: run("failed") }));
+  let liveAtNotify = null;
+  t.args.notify = (n) => { liveAtNotify = t.watches.keys().length; t.notes.push(n); throw new Error("toast failed"); };
+  await watchTick(t.args);
+  assert.equal(liveAtNotify, 1);
+  assert.equal(t.notes.length, 1);
+  assert.deepEqual(plain(t.watches.keys()), []);
+  await watchTick(t.args);
+  assert.equal(t.notes.length, 1);
+});
