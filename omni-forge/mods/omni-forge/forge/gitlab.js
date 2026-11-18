@@ -1,5 +1,5 @@
 // GitLab provider: GraphQL for list/detail, REST (glab api) for actions, shell pipes for log/artifact.
-import { cli, shell, tailText, ForgeError } from "./cli.js";
+import { cli, shell, tailText, ForgeError, execFailure, hintFor } from "./cli.js";
 
 const STATUS = {
   RUNNING: "running",
@@ -31,20 +31,55 @@ function listQuery(branch, limit) {
   return `query($p: ID!){ project(fullPath: $p){ pipelines(first: ${limit}${ref}){nodes{${PIPELINE_FIELDS}}}${mrs} } }`;
 }
 
+// `glab auth status --hostname <host>` gates every GitLab call. It runs here, before the first
+// provider call, rather than in detectRepo: every entry point (repo list, detail, log pane, Send,
+// watch tick) goes through a provider, and glab runs locally while detectRepo runs git on the
+// space's machine. A success is kept per exec and host for the session; a failure is not, so
+// Try again after `glab auth login` checks again.
+const authed = new WeakMap();
+
+export function glabAuth(exec, host) {
+  let hosts = authed.get(exec);
+  if (!hosts) authed.set(exec, (hosts = new Map()));
+  let check = hosts.get(host);
+  if (!check) {
+    check = (async () => {
+      let res;
+      try {
+        res = await exec("glab", ["auth", "status", "--hostname", host], { timeout: 15000 });
+      } catch (e) {
+        throw execFailure("gitlab", e);
+      }
+      if (res.code !== 0) throw new ForgeError(`Not logged in to ${host}`, 401, `glab auth login --hostname ${host}`);
+    })();
+    hosts.set(host, check);
+    check.catch(() => { if (hosts.get(host) === check) hosts.delete(host); });
+  }
+  return check;
+}
+
 export function gitlabProvider(exec, { host, path }) {
   const enc = encodeURIComponent(path);
   const base = `https://${host}`;
 
+  const login = `glab auth login --hostname ${host}`;
+  const notFoundHint = `Not found. Check the project path and your access to it (${login}).`;
+
   const graphql = async (query) => {
+    await glabAuth(exec, host);
     const res = await cli(exec, "gitlab", host, ["api", "--hostname", host, "graphql", "-f", `query=${query}`, "-f", `p=${path}`]);
-    if (res?.errors?.length) throw new ForgeError(res.errors.map((e) => e.message).join("; "), null, "");
-    if (!res?.data?.project) throw new ForgeError("Project not found", 404, "Not found. Check the project path and your access to it.");
+    if (res?.errors?.length) {
+      const msg = res.errors.map((e) => e.message).join("; ");
+      throw new ForgeError(msg, null, hintFor("gitlab", host, msg, null));
+    }
+    // Without a token GitLab hides private projects, so a null project may mean "not logged in".
+    if (!res?.data?.project) throw new ForgeError("Project not found", 404, notFoundHint);
     return res.data.project;
   };
 
-  const rest = (endpoint) => cli(exec, "gitlab", host, ["api", "--hostname", host, "-X", "POST", endpoint], { raw: true });
+  const rest = async (endpoint) => (await glabAuth(exec, host), cli(exec, "gitlab", host, ["api", "--hostname", host, "-X", "POST", endpoint], { raw: true }));
 
-  const sh = (script, args) => shell(exec, "gitlab", host, script, args);
+  const sh = async (script, args) => (await glabAuth(exec, host), shell(exec, "gitlab", host, script, args));
 
   const toRun = (p, requestIid, mrBranch) => ({
     id: lastId(p.id),
@@ -96,7 +131,7 @@ export function gitlabProvider(exec, { host, path }) {
       const q = `query($p: ID!){ project(fullPath: $p){ pipeline(id: ${JSON.stringify(gid)}){ ${PIPELINE_FIELDS} stages{nodes{name jobs{nodes{${JOB_FIELDS}}}}} } } }`;
       const project = await graphql(q);
       const p = project.pipeline;
-      if (!p) throw new ForgeError(`Pipeline ${id} not found`, 404, "Not found. Check the project path and your access to it.");
+      if (!p) throw new ForgeError(`Pipeline ${id} not found`, 404, notFoundHint);
       const groups = [];
       const artifacts = [];
       for (const stage of p.stages?.nodes ?? []) {

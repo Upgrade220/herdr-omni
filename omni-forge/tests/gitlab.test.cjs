@@ -11,6 +11,7 @@ const fixture = (n) => fs.readFileSync(path.join(__dirname, "fixtures", n), "utf
 function recorder(reply) {
   const calls = [];
   const exec = async (cmd, args, opts) => {
+    if (args[0] === "auth") return { code: 0, stdout: "", stderr: "" }; // glab auth status: logged in
     calls.push({ cmd, args });
     return reply(cmd, args);
   };
@@ -164,7 +165,7 @@ function realExec(binDir) {
 }
 function fakeGlab(body) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fg-"));
-  fs.writeFileSync(path.join(dir, "glab"), "#!/bin/sh\n" + body + "\n", { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, "glab"), "#!/bin/sh\n[ \"$1\" = auth ] && exit 0\n" + body + "\n", { mode: 0o755 });
   return dir;
 }
 
@@ -191,4 +192,54 @@ test("real downloadArtifact script: failure removes the partial file", async () 
   const empty = fakeGlab("true");
   await assert.rejects(gitlabProvider(realExec(empty), repo).downloadArtifact({ name: "archive.zip", jobId: "70" }, dir), (e) => e.name === "ForgeError");
   assert.equal(fs.existsSync(out), false);
+});
+
+// glab auth status gates every GitLab call; the result is cached per host once it succeeds.
+function authExec(authCode, reply = () => ({ code: 0, stdout: fixture("gitlab-list-all.json"), stderr: "" })) {
+  const calls = [];
+  const state = { authCode };
+  const exec = async (cmd, args) => {
+    calls.push({ cmd, args });
+    if (args[0] === "auth") return { code: state.authCode, stdout: "", stderr: state.authCode ? "x could not authenticate" : "" };
+    return reply(cmd, args);
+  };
+  return { exec, calls, state };
+}
+
+test("glab auth failure: Not logged in with the login command, no API call", async () => {
+  const { exec, calls } = authExec(1);
+  await assert.rejects(gitlabProvider(exec, { host: "gl.one", path: "g/p" }).listRuns({}), (e) => {
+    assert.equal(e.name, "ForgeError");
+    assert.equal(e.message, "Not logged in to gl.one");
+    assert.equal(e.hint, "glab auth login --hostname gl.one");
+    return true;
+  });
+  assert.deepEqual(calls.map((c) => c.args.slice(0, 2).join(" ")), ["auth status"]);
+  assert.ok(calls[0].args.includes("--hostname") && calls[0].args.includes("gl.one"));
+});
+
+test("glab auth status runs once per host, and again after a failure", async () => {
+  const { exec, calls, state } = authExec(1);
+  const p = gitlabProvider(exec, { host: "gl.two", path: "g/p" });
+  await assert.rejects(p.listRuns({}));
+  state.authCode = 0;
+  await p.listRuns({});
+  await gitlabProvider(exec, { host: "gl.two", path: "g/q" }).listRuns({});
+  await p.retryRun("1");
+  const auths = calls.filter((c) => c.args[0] === "auth").length;
+  assert.equal(auths, 2);
+  await gitlabProvider(exec, { host: "gl.three", path: "g/p" }).listRuns({});
+  assert.equal(calls.filter((c) => c.args[0] === "auth").length, 3);
+});
+
+test("null project: hint names the login command", async () => {
+  const { exec } = recorder(() => ({ code: 0, stdout: JSON.stringify({ data: { project: null } }), stderr: "" }));
+  await assert.rejects(gitlabProvider(exec, repo).listRuns({}), (e) => e.message === "Project not found" && e.hint.includes("glab auth login --hostname git.example.org"));
+});
+
+test("Forbidden without an HTTP code: hint names the login command", async () => {
+  const gql = recorder(() => ({ code: 0, stdout: JSON.stringify({ errors: [{ message: "Forbidden" }] }), stderr: "" }));
+  await assert.rejects(gitlabProvider(gql.exec, repo).listRuns({}), (e) => e.hint.includes("glab auth login --hostname git.example.org"));
+  const bare = recorder(() => ({ code: 1, stdout: "", stderr: "Forbidden" }));
+  await assert.rejects(gitlabProvider(bare.exec, repo).listRuns({}), (e) => e.hint.includes("glab auth login --hostname git.example.org"));
 });

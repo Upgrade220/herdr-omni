@@ -1,6 +1,8 @@
 // Runs gh / glab locally and turns failures into ForgeError with a hint for the user.
 // `exec` is passed in (herdr's exec), so this file does not import herdr.
 
+const toolOf = (kind) => (kind === "gitlab" ? "glab" : "gh");
+
 export class ForgeError extends Error {
   constructor(message, status = null, hint = "") {
     super(message);
@@ -18,10 +20,21 @@ export function httpStatus(stderr) {
 export function hintFor(kind, host, stderr, status) {
   const login = kind === "gitlab" ? `glab auth login --hostname ${host}` : "gh auth login";
   if (status === 401 || /not logged|no token|not authenticated/i.test(stderr)) return login;
-  if (status === 403) return `Access denied. Check the token's scopes (${login}) or your access to the project.`;
+  // GitLab answers some unauthenticated calls with a bare "Forbidden" and no HTTP code.
+  if (status === 403 || (status === null && /\bforbidden\b/i.test(stderr))) return `Access denied. Check the token's scopes (${login}) or your access to the project.`;
   if (status === 404) return "Not found. Check the project path and your access to it.";
   if (status === 429) return "Rate limited. Wait a moment and refresh.";
   return "";
+}
+
+// An exec that rejected (tool missing, timeout) as a ForgeError with an install or network hint.
+export function execFailure(kind, e, tool = toolOf(kind)) {
+  const msg = String(e?.message ?? e);
+  const timedOut = /time(d)? ?out/i.test(msg);
+  const hint = timedOut
+    ? `${tool} timed out. Check the network or VPN and refresh.`
+    : `Could not run ${tool}. Install it (${kind === "gitlab" ? "https://gitlab.com/gitlab-org/cli" : "https://cli.github.com"}) and make sure it is on PATH.`;
+  return new ForgeError(msg, null, hint);
 }
 
 // Runs `cmd` through exec; rejections and non-zero exits become ForgeError. `tool` names gh/glab in messages.
@@ -30,12 +43,7 @@ async function run(exec, kind, host, cmd, args, timeout, tool) {
   try {
     res = await exec(cmd, args, { timeout });
   } catch (e) {
-    const msg = String(e?.message ?? e);
-    const timedOut = /time(d)? ?out/i.test(msg);
-    const hint = timedOut
-      ? `${tool} timed out. Check the network or VPN and refresh.`
-      : `Could not run ${tool}. Install it (${kind === "gitlab" ? "https://gitlab.com/gitlab-org/cli" : "https://cli.github.com"}) and make sure it is on PATH.`;
-    throw new ForgeError(msg, null, hint);
+    throw execFailure(kind, e, tool);
   }
   if (res.code !== 0) {
     const stderr = (res.stderr ?? "").trim();
@@ -44,8 +52,6 @@ async function run(exec, kind, host, cmd, args, timeout, tool) {
   }
   return res;
 }
-
-const toolOf = (kind) => (kind === "gitlab" ? "glab" : "gh");
 
 export async function cli(exec, kind, host, args, { timeout = 30000, raw = false } = {}) {
   const tool = toolOf(kind);
