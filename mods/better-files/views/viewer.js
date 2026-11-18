@@ -2,7 +2,7 @@
 // belongs in the code editor it can open.
 import { div, image } from "gpui-kit";
 import { h_flex, v_flex, Editor, EditorState, Scrollbar, v_virtual_list } from "gpui-base";
-import { appHome, exec, focused, layout, panes, readTextFile, setShared, shared, theme } from "herdr";
+import { appHome, exec, focused, layout, panes, readTextFile, setShared, shared, theme, window } from "herdr";
 import {
   baseName,
   buildRows,
@@ -19,7 +19,8 @@ import {
 } from "../files/model.js";
 import { WHOLE_FILE_LINES, fenceLanguage, highlightLines, languageOf as lexerLanguage, syntaxColors, tokenizeLine } from "../syntax.js";
 import { viewerEntries } from "../actions/open.js";
-import { foundEditors } from "../actions/outside.js";
+import { BUSY, pickCopyImage, pickRm } from "../files/shell.js";
+import { editorId, foundEditors } from "../actions/outside.js";
 import { fileIcon, isLight } from "../files/file-icons.js";
 import { TEXT, FileIcon, IconButton, Markdown, Message, MenuButton, TextButton, codeFont, codeSize } from "./ui.js";
 
@@ -29,28 +30,9 @@ const rowHeight = () => Math.round(codeSize() * 1.6);
 const REMOVED_ROW = 8;
 
 // Copies go in a hidden folder: saving any other file in a mod's folder makes Herdr reload
-// the mod, which threw the tree away on every picture opened. Herdr doesn't see a hidden file
-// change either, and keeps what it loaded under a name, so a name is never given to other
-// bytes: it's the picture's checksum and size, and a changed picture gets a new one.
-// $1 the file, $2 the cache folder, $3 the name's start, $4 its extension, $5 the copy this one
-// replaces, removed once the new one is in. With no $5, as when a tab starts again after a
-// reload, every other copy under the same start goes instead, so none outlives what tracked
-// it. Prints the copy's name. No file name reaches the script itself, and only the cache's
-// own copies are ever removed. A picture that changes while it's copied exits BUSY, and a
-// copy that fails or is BUSY leaves nothing half-made behind; it's copied on the next check.
+// the mod, which threw the tree away on every picture opened. The copy itself, and how it's
+// named, is in files/shell.js.
 const CACHE = "mods/better-files/.cache";
-const BUSY = 75;
-const COPY_IMAGE = `sum=$(cksum < "$1") || exit 1
-name="$3-\${sum%% *}-\${sum##* }.$4"; copy="$2/$name"
-if [ ! -e "$copy" ]; then
-  trap 'rm -f -- "$copy.part"' EXIT
-  mkdir -p -- "$2" && cp -- "$1" "$copy.part" || exit 1
-  [ "$(cksum < "$copy.part")" = "$sum" ] || exit ${BUSY}
-  mv -f -- "$copy.part" "$copy" || exit 1
-fi
-if [ -n "$5" ]; then set -- "$5"; else set -- "$2/$3"-[0-9]*; fi
-for old in "$@"; do [ "$old" = "$copy" ] || [ ! -e "$old" ] || rm -f -- "$old"; done
-printf %s "$name"`;
 const extension = (path) => path.split(".").pop().toLowerCase();
 const absolute = (copy) => (copy ? `${appHome()}/${copy}` : "");
 // $1 a picture's web address, $2 its copy without an extension. A copy under a day old is used
@@ -415,7 +397,9 @@ export const viewerMethods = {
 
   // Removes copies this tab made, given as paths under Herdr's folder.
   async dropCopies(copies) {
-    if (copies.length) await exec("rm", ["-f", "--", ...copies.map(absolute)], {}).catch(() => {});
+    if (!copies.length) return;
+    const { program, args } = pickRm(copies.map(absolute), window()?.platform);
+    await exec(program, args, {}).catch(() => {});
   },
 
   // Herdr only loads images from under its own folder, so the file is shown through a copy
@@ -429,18 +413,15 @@ export const viewerMethods = {
     }
     this.reading = true;
     cx.spawn(async (cx) => {
-      const result = await exec(
-        "sh",
-        ["-c", COPY_IMAGE, "copy-image", file.path, absolute(CACHE), this.viewerId, extension(file.path), absolute(this.imageCopy)],
-        {},
-      ).catch(() => null);
+      const { program, args } = pickCopyImage(file.path, absolute(CACHE), this.viewerId, extension(file.path), absolute(this.imageCopy), window()?.platform);
+      const result = await exec(program, args, {}).catch(() => null);
       this.reading = false;
       const copy = result?.code === 0 ? `${CACHE}/${result.stdout.trim()}` : null;
       // Kept even when the tab has moved on, so the next copy replaces it; a closed tab's goes now.
       if (copy) this.imageCopy = copy;
       if (copy && this.closed) return this.dropCopies([copy]);
       if (this.file?.path !== file.path || result?.code === BUSY) return;
-      const problem = copy ? null : "This file is no longer available.";
+      const problem = copy ? null : `This file is no longer available: ${file.path}`;
       if (problem !== this.problem || copy !== this.imageShown) {
         this.problem = problem;
         this.imageShown = copy;
@@ -522,7 +503,8 @@ export const viewerMethods = {
       const start = `${this.viewerId}-m${this.markdownSlots.get(path)}`;
       cx.spawn(async (cx) => {
         const old = this.markdownCopies.get(path);
-        const result = await exec("sh", ["-c", COPY_IMAGE, "copy-image", path, absolute(CACHE), start, extension(path), absolute(old)], {}).catch(() => null);
+        const { program, args } = pickCopyImage(path, absolute(CACHE), start, extension(path), absolute(old), window()?.platform);
+        const result = await exec(program, args, {}).catch(() => null);
         this.markdownCopying.delete(path);
         if (result?.code === BUSY) return;
         const copy = result?.code === 0 ? `${CACHE}/${result.stdout.trim()}` : null;
@@ -768,9 +750,9 @@ export const viewerMethods = {
             accessibilityLabel: "Open in an editor",
             width: 200,
             trigger: MenuButton({ id: "viewer-open-in-trigger", label: "Open in" }),
-            choices: editors.map((e) => ({ id: e.bundle, label: e.name })),
-            onChoose: (bundle) => {
-              this.openInEditor(editors.find((e) => e.bundle === bundle), file.path);
+            choices: editors.map((e) => ({ id: editorId(e), label: e.name })),
+            onChoose: (id) => {
+              this.openInEditor(editors.find((e) => editorId(e) === id), file.path);
             },
           }),
         ),

@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '../mods/better-files');
-const FILES = ['settings.js', 'files/model.js', 'files/file-icons.js', 'files/filter.js', 'views/ui.js', 'files/reads.js', 'actions/open.js', 'actions/outside.js', 'actions/agents.js', 'actions/menus.js', 'views/tree.js', 'views/filter.js', 'views/tools.js', 'views/keys.js', 'views/viewer.js', 'views/context-menu.js', 'main.js'];
+const FILES = ['settings.js', 'files/model.js', 'files/file-icons.js', 'files/filter.js', 'views/ui.js', 'files/shell.js', 'files/reads.js', 'actions/open.js', 'actions/outside.js', 'actions/agents.js', 'actions/menus.js', 'views/tree.js', 'views/filter.js', 'views/tools.js', 'views/keys.js', 'views/viewer.js', 'views/context-menu.js', 'main.js'];
 // syntax.js keeps a scope of its own, as a module does: its languageOf isn't model.js's.
 const lexer = fs.readFileSync(path.join(root, 'syntax.js'), 'utf8').replace(/^export /gm, '');
 const source = `const { highlightLines, tokenizeLine, syntaxColors, languageOf: lexerLanguage, WHOLE_FILE_LINES, fenceLanguage } = (() => {\n${lexer}\nreturn { highlightLines, tokenizeLine, syntaxColors, languageOf, WHOLE_FILE_LINES, fenceLanguage };\n})();\n`
@@ -15,7 +15,7 @@ const source = `const { highlightLines, tokenizeLine, syntaxColors, languageOf: 
     .replace(/^import\s+[\s\S]*?;$/gm, '')
     .replace(/^export default (\w+);$/m, 'globalThis.Mod = $1;')
     .replace(/^export /gm, '')
-  + '\nObject.assign(globalThis, { parseStatus, parseHunks, buildRows, highlightLines, tokenizeLine, lexerLanguage, viewable, languageOf, sortEntries, markdownBlocks, resolvePath, isMarkdown, MAX_CHARS, indexOf, findMatches, matchRows, foldersTo, MAX_INDEXED, MAX_MATCHES, COPY_IMAGE });';
+  + '\nObject.assign(globalThis, { parseStatus, markKey, holdsChange, parseHunks, buildRows, highlightLines, tokenizeLine, lexerLanguage, viewable, languageOf, sortEntries, markdownBlocks, resolvePath, isMarkdown, MAX_CHARS, indexOf, findMatches, matchRows, foldersTo, MAX_INDEXED, MAX_MATCHES, COPY_IMAGE });';
 
 const TREE = { '/repo': [['d', 'src'], ['f', 'b.md'], ['f', 'a.md']], '/repo/src': [['f', 'main.go']] };
 
@@ -25,7 +25,7 @@ const EVERY = 'a.md\0b.md\0new.txt\0src/main.go\0';
 function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage = {}, everything = EVERY, deleted = '', found = '', copyImage, diff = '', layout = {}, mode = 'sidebar', viewer, file, target, tree = TREE, status = ' M b.md\0M  src/main.go\0?? new.txt\0', editors = ['dev.zed.Zed'], top = '/repo', machine = null, cwd = '/repo', texts = {}, agents = [], known = [], sharedInit = {}, hcResult } = {}) {
   const store = new Map(Object.entries(sharedInit));
   const ran = [], execs = [], sent = [], clipboard = [], closed = [], overlays = [], urls = [], scrolled = [];
-  const live = { pictures: { ...pictures }, layout, panes: [{ pane: 'p1', tab: 'tab1', cwd }, ...(focusOn ? [focusOn] : [])], focused: focusOn ? { space: 's', tab: focusOn.tab, pane: focusOn.pane, cwd: null } : { space: 's', tab: 'tab1', pane: 'p1', cwd }, agents, texts: { ...texts } };
+  const live = { pictures: { ...pictures }, layout, panes: [{ pane: 'p1', tab: 'tab1', cwd, terminal: 'term1' }, ...(focusOn ? [focusOn] : [])], focused: focusOn ? { space: 's', tab: focusOn.tab, pane: focusOn.pane, cwd: null } : { space: 's', tab: 'tab1', pane: 'p1', cwd, terminal: 'term1' }, agents, texts: { ...texts } };
   const timers = [], later = [];
   const kept = new Map(Object.entries(storage));
   const waiting = [];
@@ -139,6 +139,15 @@ test('the tree lists folders first, opens lazily and marks what changed', async 
   assert.match(strings(find(h.mod.render(), 'files-row-src/main.go')), /main\.go M/);
   click(h, 'files-row-src');
   assert.equal(find(h.mod.render(), 'files-row-src/main.go'), undefined);
+});
+
+test('git marks match the tree when the root is native but git reports forward slashes (windows)', async () => {
+  const tree = { 'C:\\wf-test': [['d', 'src'], ['f', 'b.md'], ['f', 'a.md']], 'C:\\wf-test/src': [['f', 'main.go']] };
+  const h = await ready({ tree, top: 'C:/wf-test', cwd: 'C:\\wf-test' });
+  assert.match(strings(find(h.mod.render(), 'files-list')), /b\.md M/);
+  click(h, 'files-row-src');
+  await h.flush();
+  assert.match(strings(find(h.mod.render(), 'files-row-src/main.go')), /main\.go M/);
 });
 
 test('a changed file and a folder holding one are coloured by what happened', async () => {
@@ -764,6 +773,15 @@ test('looking at a file tab leaves the tree where it was', async () => {
   assert.equal(h.mod.root, '/repo/src');
 });
 
+test('a file tab with its own cwd does not yank the tree away', async () => {
+  const h = await ready({ cwd: '/repo/src' });
+  assert.equal(h.mod.root, '/repo/src');
+  h.live.panes.push({ pane: 'p9', tab: 'tab9', mod: 'better-files' });
+  h.live.focused = { space: 's', tab: 'tab9', pane: 'p9', cwd: '/other' };
+  h.tick();
+  assert.equal(h.mod.root, '/repo/src');
+});
+
 test('moving to another folder loads it even while the last one is still loading', async () => {
   const h = world({ cwd: '/repo' });
   h.live.panes[0].cwd = '/repo/src';
@@ -784,6 +802,19 @@ test('the status parser and helpers', async () => {
   });
   assert.equal(m.languageOf('a/b.tsx'), 'js');
   assert.equal(m.languageOf('Makefile'), 'txt');
+});
+
+test('on Windows, marks match the tree from a subfolder and across drive-letter case', async () => {
+  const { context: m } = await ready();
+  // Git reports C:/proj; the tree sits in c:\proj\sub and builds keys as `${root}/${relative}`.
+  const marks = m.parseStatus(' M sub/a.js\0?? sub/deep/b.js\0', 'C:/proj');
+  const root = 'c:\\proj\\sub';
+  assert.equal(marks[m.markKey(`${root}/a.js`)].mark, 'M');
+  assert.equal(marks[m.markKey(`${root}/deep/b.js`)].mark, 'A');
+  assert.ok(m.holdsChange(marks, `${root}/deep`));
+  assert.ok(!m.holdsChange(marks, `${root}/other`));
+  // POSIX paths are their own key.
+  assert.equal(m.markKey('/r/a b/c'), '/r/a b/c');
 });
 
 test('the suggested key focuses the tree through a command the sidebar handles', () => {

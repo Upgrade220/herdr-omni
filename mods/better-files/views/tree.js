@@ -1,10 +1,11 @@
 // The sidebar: the folder tree, and the box for a prompt to an agent.
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { openOverlay, shared, theme } from "herdr";
-import { baseName, holdsChange, TOTAL_ROWS } from "../files/model.js";
+import { openOverlay, shared, theme, window } from "herdr";
+import { openFolderLabel } from "../files/shell.js";
+import { baseName, holdsChange, markKey, TOTAL_ROWS } from "../files/model.js";
 import { viewerEntries } from "../actions/open.js";
-import { foundEditors } from "../actions/outside.js";
+import { editorId, foundEditors } from "../actions/outside.js";
 import { agentName } from "../actions/agents.js";
 import { TEXT, Badge, Button, Chevron, FileIcon, Icon, markColor, IconButton, Message, Panel, PanelHeader, StatusLetter, TextBox } from "./ui.js";
 
@@ -25,14 +26,16 @@ export const treeMethods = {
   // the menu's own copy of this mod.
   targetOf(relative, dir) {
     const path = `${this.root}/${relative}`;
-    const change = this.marks[path];
+    const key = markKey(path);
+    const change = this.marks[key];
+    const top = this.top && markKey(this.top);
     return {
       path,
       root: this.root,
       on: this.on ?? null,
       top: this.top,
       dir,
-      relative: this.top && path.startsWith(`${this.top}/`) ? path.slice(this.top.length + 1) : relative,
+      relative: top && key.startsWith(`${top}/`) ? key.slice(top.length + 1) : relative,
       changed: Boolean(change),
       staged: Boolean(change?.staged),
     };
@@ -62,7 +65,7 @@ export const treeMethods = {
   row(relative, name, dir, depth, t, match = null) {
     const path = `${this.root}/${relative}`;
     const open = match ? match.open : this.folders.has(relative);
-    const change = this.marks[path];
+    const change = this.marks[markKey(path)];
     const color = dir ? (holdsChange(this.marks, path) ? t.ansi3 : null) : markColor(change?.mark, t);
     const selected = !dir && Object.values(viewerEntries()).some((v) => v.file?.path === path);
     const marked = relative === this.cursor && this.showsCursor();
@@ -127,7 +130,7 @@ export const treeMethods = {
     return out;
   },
 
-  // The whole folder on show, in an editor or Finder. This computer's apps only.
+  // The whole folder on show, in an editor or Finder/Explorer. This computer's apps only.
   folderMenu(t) {
     const FINDER = "finder";
     const editors = foundEditors();
@@ -150,12 +153,12 @@ export const treeMethods = {
         .hover((el) => el.bg(t.hover).text_color(t.foreground))
         .child(Icon("folder", 15)),
       choices: [
-        ...editors.map((e) => ({ id: e.bundle, label: `Open in ${e.name}` })),
-        { id: FINDER, label: "Open in Finder" },
+        ...editors.map((e) => ({ id: editorId(e), label: `Open in ${e.name}` })),
+        { id: FINDER, label: openFolderLabel(window()?.platform) },
       ],
       onChoose: (id) => {
         if (id === FINDER) this.openWithDefault(this.root);
-        else this.openInEditor(editors.find((e) => e.bundle === id), this.root);
+        else this.openInEditor(editors.find((e) => editorId(e) === id), this.root);
       },
     });
   },

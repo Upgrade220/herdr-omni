@@ -1,6 +1,7 @@
 // Reading the folder tree, and Git's view of it, for the focused pane's folder.
-import { spaces, panes, focused, exec, watchFolder } from "herdr";
+import { spaces, panes, focused, exec, watchFolder, window } from "herdr";
 import { PER_FOLDER, parseStatus, sortEntries } from "./model.js";
+import { pickListing } from "./shell.js";
 import { indexOf } from "./filter.js";
 
 const INDEX_BYTES = 4000000;
@@ -40,11 +41,13 @@ async function everyFile(root, on) {
 }
 
 // Each read of a folder is bounded, and the names come back null-separated, so no file name
-// can break the list. Adapted from Herdr's shipped Files mod.
-// shortcut: needs `sh`, so a Windows machine shows an error; add a PowerShell listing if one is used.
+// can break the list. Adapted from Herdr's shipped Files mod; platform branching (sh vs
+// PowerShell 5.1) lives in shell.js. Herdr only says what this computer runs, so another
+// machine's folder is read with `sh`, as before.
 async function directory(path, on) {
-  const script = `n=0; for p in "$1"/* "$1"/.[!.]* "$1"/..?*; do [ -e "$p" ] || [ -L "$p" ] || continue; name=\${p##*/}; [ "$name" = .git ] && continue; if [ -d "$p" ]; then kind=d; else kind=f; fi; printf "%s\\0%s\\0" "$kind" "$name"; n=$((n+1)); [ "$n" -gt ${PER_FOLDER} ] && break; done; test -d "$1"`;
-  const r = await exec("sh", ["-c", script, "files", path], { on });
+  const platform = on ? null : window()?.platform;
+  const { program, args } = pickListing(path, PER_FOLDER, platform);
+  const r = await exec(program, args, { on });
   if (r.code !== 0) throw new Error(r.stderr || "Cannot list this folder.");
   const fields = r.stdout.split("\0");
   const out = [];
@@ -79,7 +82,16 @@ export const readMethods = {
           ? f.terminal.split("/")[0]
           : null
         : (space?.machine ?? null);
-    const cwd = pane?.cwd || f?.cwd;
+    // A file or diff tab carries no cwd of its own: only a terminal pane (a pane entry
+    // with no mod) contributes one, or the focused entry's cwd when it names a terminal.
+    // `f?.terminal` is null for mod panes even while their `mod` is still attaching,
+    // so it keeps a just-opened viewer from leaking the pane's default cwd.
+    const cwd =
+      pane && !pane.mod && f?.terminal
+        ? (pane.cwd || f?.cwd || null)
+        : !pane && f?.terminal
+          ? (f?.cwd ?? null)
+          : null;
     if (!cwd && this.place?.space === space?.id && this.place?.cwd) return this.place;
     return (this.place = { cwd: cwd || liveFolder(space) || space?.folder, on, space: space?.id });
   },
@@ -162,6 +174,8 @@ export const readMethods = {
       { cwd: root, on },
     ).catch(() => null);
     if (this.key !== token) return;
+    // Git's spelling of the top (forward slashes, its own drive-letter case on Windows) is
+    // kept; marks are compared through markKey, so it needn't match the root's.
     this.top = top.stdout.trim();
     if (status?.code === 0) this.marks = parseStatus(status.stdout, this.top);
   },
