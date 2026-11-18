@@ -110,6 +110,16 @@ function icon(p, size, color) {
     : image(p.icon).w(size).h(size).flex_none();
 }
 
+// herdr-omni: what prefix grouping reads, a name someone chose (a named tab), never the live
+// title an unnamed tab shows: a changing title would move the agent between groups.
+function agentGroupName() {
+  const tabs = spaces().flatMap((s) => s.tabs);
+  return (a) => {
+    const tab = tabs.find((candidate) => candidate.id === a.tab);
+    return tab?.named ? tab.name : null;
+  };
+}
+
 // What a row calls an agent: its tab's title, or failing that its own.
 function agentLabel() {
   const tabs = spaces().flatMap((s) => s.tabs);
@@ -395,7 +405,7 @@ export class Agents {
     const unpinned = ordered.filter((a) => !this.pins.includes(a.address));
 
     const label = agentLabel();
-    const groupOf = grouping(sort.id, label);
+    const groupOf = grouping(sort.id, agentGroupName());
     const rest = groupOf ? gatherGroups(unpinned, groupOf, sort.id) : unpinned;
     const list = [...pinned, ...rest];
     return {

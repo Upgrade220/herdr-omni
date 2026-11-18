@@ -43,7 +43,7 @@ function harness(view) {
     Popover: { new: element },
     agents: () => live.agents,
     terminals: () => [],
-    panes: () => [],
+    panes: () => live.panes ?? [],
     focused: () => null,
     spaces: () => live.spaces,
     run: (name, args) => commands.push({ name, args }),
@@ -102,7 +102,7 @@ function agents(sort) {
   const mod = load(h, "views/agents.js", "Agents");
   mod.init({}, cx);
   h.live.shared["agents.sort"] = sort;
-  const tab = (id, name) => ({ id, name });
+  const tab = (id, name) => ({ id, name, named: true });
   h.live.spaces = [
     { id: "shop", name: "shop", tabs: [tab("a", "Work"), tab("f", "INS-7 fix")] },
     { id: "wt", name: "PR-6", tabs: [tab("b", "Review")] },
@@ -280,4 +280,15 @@ test("the panel toggle hides the right panel by click and key, and names what it
   assert.ok(find(toggle.render(), "panel-toggle"));
   h.live.root = { id: "root", children: [] };
   assert.equal(find(toggle.render(), "panel-toggle"), undefined, "no panel, no button");
+});
+
+test("group by prefix ignores an unnamed tab's live title", () => {
+  const { h, mod } = agents("prefix");
+  h.live.spaces[0].tabs.push({ id: "g", name: "3", named: false });
+  h.live.agents.push({ address: "t7", space: "shop", space_name: "shop", tab: "g", status: "idle", pane: "p-t7", seq: 1 });
+  h.live.panes = [...(h.live.panes ?? []), { pane: "p-t7", tab: "g", terminal: "t7", title: "✳ PR-77 review", program: { name: "Claude Code", key: "claude", agent: true }, cwd: "/w/shop" }];
+  const tree = mod.render(cx);
+  const order = rows(tree);
+  assert.ok(order.indexOf("ag-t7") > order.indexOf("prefix-none"), JSON.stringify(order));
+  assert.match(strings(find(tree, "ag-t7")), /PR-77 review/, "the row still shows the title");
 });
