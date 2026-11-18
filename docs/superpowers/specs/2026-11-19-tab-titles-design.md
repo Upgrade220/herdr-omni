@@ -15,10 +15,10 @@ terminal:
 1. its terminal title, with leading symbols stripped (e.g. Claude Code's spinning ✳), when
    it says something: not a path (`~/…`, `/…`, `C:\…`), not `user@host…`, not just the
    program's name or key;
-2. else the program's name, unless it's a shell;
-3. else the folder's name (a shell whose title is only a path);
-4. a tab holding only a mod pane: that pane's title (the mod's name);
-5. else Herdr's name ("1").
+2. else the program's name (a shell too: `zsh`; the folder isn't shown, the sidebar and the
+   shell already say where it is);
+3. a tab holding only a mod pane: that pane's title (the mod's name);
+4. else Herdr's name ("1").
 
 Long labels truncate as names do today; the full label is the tooltip. Nothing is written
 to Herdr: its names stay "1", "2", and double-click rename works as before.

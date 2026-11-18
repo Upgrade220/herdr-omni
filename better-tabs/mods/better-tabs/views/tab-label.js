@@ -1,12 +1,10 @@
 // herdr-omni: what a tab is called on screen. A tab someone named keeps its name; one nobody
-// named (Herdr calls it "1", "2") shows its lead pane's terminal title when that says something,
-// else its program (not a shell), else its folder, else a mod pane's title. Display only: nothing
+// named (Herdr calls it "1", "2") shows its lead pane's terminal title when that says something
+// specific, else its program's name (zsh too), else a mod pane's title. Display only: nothing
 // is renamed. Pure, and kept identical in Better Sidebar's views/tab-label.js.
 
 // Leading symbols are status decorations (Claude Code's spinning ✳ and the like).
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
-
-const lastSegment = (p) => (p ?? "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
 
 const isPath = (s) => /^[~/]|^[A-Za-z]:\\/.test(s);
 
@@ -30,9 +28,8 @@ export function tabLabel(tab, panes) {
     const raw = (lead.title ?? "").trim();
     const title = clean(raw);
     if (!isPath(raw) && telling(title, lead.program)) return title;
-    if (lead.program?.name && !lead.program.shell) return lead.program.name;
-    const folder = lastSegment(lead.cwd);
-    if (folder) return folder;
+    // The folder isn't shown: the sidebar and the shell already say where it is.
+    if (lead.program?.name) return lead.program.name;
   }
   const mod = mine.find((p) => !p.terminal && p.title);
   return mod ? mod.title : tab.name;

@@ -21,9 +21,13 @@ test("an agent's title, without its spinner glyph", () => {
   assert.equal(tabLabel(tab("1"), [term({ title: "✳ Fix totals", program: claude })]), "Fix totals");
 });
 
-test("a shell whose title is a path shows its folder", () => {
-  assert.equal(tabLabel(tab("2"), [term({ title: "~/repos/x", program: zsh, cwd: "/w/x" })]), "x");
-  assert.equal(tabLabel(tab("2"), [term({ title: "me@host: ~", program: zsh, cwd: "/w/y" })]), "y");
+test("a shell whose title is only a path or user@host shows the shell's name", () => {
+  assert.equal(tabLabel(tab("2"), [term({ title: "~/repos/x", program: zsh, cwd: "/w/x" })]), "zsh");
+  assert.equal(tabLabel(tab("2"), [term({ title: "me@host: ~", program: zsh, cwd: "/w/y" })]), "zsh");
+});
+
+test("a shell running something specific shows that title", () => {
+  assert.equal(tabLabel(tab("2"), [term({ title: "npm run dev", program: zsh })]), "npm run dev");
 });
 
 test("a program without a telling title shows the program", () => {
