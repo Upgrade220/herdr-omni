@@ -529,7 +529,7 @@ test("package is standalone with local icons and no layout or helper dependency"
   const source = [
     "main.js",
     "views/spaces.js",
-    "views/agents.js",
+    "views/tab-label.js", "views/agents.js",
     "views/footer.js",
     "views/panel-toggle.js",
     "views/ui.js",

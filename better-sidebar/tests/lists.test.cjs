@@ -79,7 +79,7 @@ async function harness({ settings = {}, tab = null, panes = [], sharedValues = {
   };
   vm.createContext(context);
   // Each file in its own scope, as a module is; its exports become globals for the next.
-  for (const file of ["settings.js", "git/pr-status.js", "git/checkouts.js", "views/find-node.js", "views/ui.js", "views/folds.js", "views/spaces.js", "views/agents.js", "views/lists.js"]) {
+  for (const file of ["settings.js", "git/pr-status.js", "git/checkouts.js", "views/find-node.js", "views/ui.js", "views/folds.js", "views/spaces.js", "views/tab-label.js", "views/agents.js", "views/lists.js"]) {
     const source = fs.readFileSync(path.join(runtime, file), "utf8").replace(/^import\s+[\s\S]*?;\n/gm, "");
     const names = [...source.matchAll(/^export (?:async )?(?:class|function|const) (\w+)/gm)].map((m) => m[1]);
     vm.runInContext(`Object.assign(globalThis, (() => { ${source.replaceAll("export ", "")}\nreturn { ${names.join(", ")} }; })());`, context);
@@ -103,7 +103,8 @@ test("an open space shows its tabs beneath it, as their agents where they have a
   const drawn = ids(mod.render()).filter((id) => /^(space-(shop|docs)|ag-t\d|tab-\w)$/.test(id));
   assert.deepEqual(drawn, ["space-shop", "ag-t1", "ag-t3", "tab-d", "space-docs", "ag-t2"]);
   // Its tab's title, then its program, quietly.
-  assert.match(text(find(mod.render(), "ag-t1")), /^\s*1\s+Claude Code/);
+  // Its tab's label (herdr-omni): with no panes to read, the tab's own name ("a").
+  assert.match(text(find(mod.render(), "ag-t1")), /^\s*a\s+Claude Code/);
   assert.deepEqual(live.order, ["t1", "t3", "t2"]);
 });
 
@@ -145,7 +146,7 @@ test("in Spaces a pinned agent sits above every space", async () => {
 
 test("an Agents row reads its tab's title, then its space", async () => {
   const { mod } = await harness({ tab: "agents" });
-  assert.match(text(find(mod.render(), "ag-t1")), /^\s*1\s+shop/);
+  assert.match(text(find(mod.render(), "ag-t1")), /^\s*a\s+shop/);
 });
 
 test("a mod's tab shows the icon the mod publishes, and a tab with neither keeps the gap", async () => {
@@ -291,4 +292,12 @@ test("next-agent keys follow the drawn machine order: this computer first", asyn
   });
   mod.render();
   assert.deepEqual(live.order, ["t1", "t3", "t2"]);
+});
+
+test("an Agents row shows its unnamed tab's terminal title, not the number", async () => {
+  const { mod } = await harness({
+    tab: "agents",
+    panes: [{ pane: "p-t1", tab: "a", terminal: "t1", title: "✳ Fix totals", program: { name: "Claude Code", key: "claude", agent: true }, cwd: "/w/shop" }],
+  });
+  assert.match(text(find(mod.render(), "ag-t1")), /^\s*Fix totals\s+shop/);
 });

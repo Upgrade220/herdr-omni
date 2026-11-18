@@ -80,7 +80,7 @@ function read(file) {
 
 function load(h, file, name) {
   if (!h.kitLoaded) {
-    vm.runInContext(read("views/find-node.js") + read("views/ui.js"), h.context);
+    vm.runInContext(read("views/find-node.js") + read("views/ui.js") + read("views/tab-label.js"), h.context);
     h.kitLoaded = true;
   }
   const source = read(file);

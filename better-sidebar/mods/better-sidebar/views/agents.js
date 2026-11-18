@@ -19,6 +19,7 @@ import {
   layout,
 } from "herdr";
 import { findNode } from "./find-node.js";
+import { tabLabel } from "./tab-label.js";
 import { TEXT, Icon, IconButton, GroupHeader, Menu, MenuLabel, MenuOption } from "./ui.js";
 
 // The sidebar's rail goes by its width, not a flag: dragging its edge narrows it too.
@@ -36,24 +37,13 @@ function toggleSidebar() {
   });
 }
 
-const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
-
 function lead(tab, all = panes()) {
   const mine = all.filter((p) => p.tab === tab.id && p.terminal);
   return mine.find((p) => p.program?.agent) ?? mine.find((p) => p.focused) ?? mine[0];
 }
 
-function title(tab, l) {
-  const prog = l?.program?.name;
-  const live = clean(l?.title);
-  const telling =
-    live &&
-    live !== prog &&
-    !/^[~/]|^[A-Za-z]:\\/.test(live) &&
-    !live.includes("@") &&
-    live.toLowerCase() !== l?.program?.key;
-  return tab.name === prog && telling ? live : tab.name;
-}
+// herdr-omni: a tab's on-screen name (views/tab-label.js): its title, not "1", when unnamed.
+const title = (tab, all = panes()) => tabLabel(tab, all);
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 // A sub-agent without a pane isn't in agents(): its raw word, error counting as
 // blocked. It's never done: it reports to its parent, and the parent's done is the news.
@@ -125,7 +115,7 @@ function agentLabel() {
   const tabs = spaces().flatMap((s) => s.tabs);
   return (a) => {
     const tab = tabs.find((candidate) => candidate.id === a.tab);
-    return tab ? title(tab, lead(tab)) : a.title || a.program?.name || "";
+    return tab ? title(tab) : a.title || a.program?.name || "";
   };
 }
 
@@ -608,8 +598,8 @@ export class Agents {
   // A tab with no agent, under its space in the lists view: its program and its name.
   tabRow(w, tab, lit, t) {
     const l = lead(tab);
-    // The tab's title, as Herdr's tab bar shows it.
-    const name = tab.name;
+    // The tab's title, as the tab bar shows it (herdr-omni: its label, not "1").
+    const name = title(tab);
     const prog = l?.program?.name;
     // A mod's pane runs no program, but the mod may publish an icon, as Better Tabs reads it.
     const modIcon = shared("mod-icons")?.[panes().find((p) => p.tab === tab.id && p.mod)?.mod];
@@ -665,7 +655,7 @@ export class Agents {
     const label = view.label(a);
     const namesSpace = !view.nested;
     // A row is its tab's title, as Herdr's tab bar shows it; the icon says which agent.
-    const name = a.tab_name || label;
+    const name = label || a.tab_name;
     const prog = a.program?.name;
     const idle = a.status === "idle" && !a.focused;
     return h_flex()
