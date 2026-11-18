@@ -108,3 +108,27 @@ test("commitPlan: blank title is null; body and add -A", () => {
   assert.deepEqual(C.commitPlan("t", "b", 1), [["commit", "-m", "t", "-m", "b"]]);
   assert.deepEqual(C.commitPlan("t", "", 0), [["add", "-A"], ["commit", "-m", "t"]]);
 });
+
+test("workDiffArgs: unstaged and staged diffs of a path with spaces", () => {
+  const repo = mk(), p = "a b/ç.txt";
+  write(repo, p, "one\n"); git(repo, ["add", "."]); git(repo, ["commit", "-qm", "add"]);
+  write(repo, p, "two\n"); git(repo, ["add", "--", p]); write(repo, p, "three\n");
+  const work = G.diffRows(git(repo, C.workDiffArgs(false, p)));
+  const staged = G.diffRows(git(repo, C.workDiffArgs(true, p)));
+  assert.deepEqual(work.filter((r) => r.kind === "+").map((r) => r.text), ["three"]);
+  assert.deepEqual(staged.filter((r) => r.kind === "+").map((r) => r.text), ["two"]);
+});
+
+test("visibleRows: a collapsed dir hides what's under it, not its siblings", () => {
+  const ch = (path) => ({ path, s: "M", fresh: false });
+  const rows = C.fileTree([ch("src/a/x.js"), ch("src/b.js"), ch("src/ab.js"), ch("top.md")]);
+  assert.deepEqual(C.visibleRows(rows, new Set(["src/a"])).map((r) => r.path), ["src", "src/a", "src/ab.js", "src/b.js", "top.md"]);
+  assert.deepEqual(C.visibleRows(rows, new Set(["src"])).map((r) => r.path), ["src", "top.md"]);
+  assert.equal(C.visibleRows(rows, new Set()).length, rows.length);
+});
+
+test("commitLabel: Commit, Commit all, Nothing to commit", () => {
+  assert.equal(C.commitLabel(1, 3), "Commit");
+  assert.equal(C.commitLabel(0, 2), "Commit all");
+  assert.equal(C.commitLabel(0, 0), "Nothing to commit");
+});

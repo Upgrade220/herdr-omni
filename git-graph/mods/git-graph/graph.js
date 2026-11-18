@@ -10,6 +10,7 @@ import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, parseLog, parseStatus, withU
 import { perform, openDialog, showChanges } from "./act.js";
 import { icon } from "./menu.js";
 import { available, check, openUpdate, newer } from "./update.js";
+import { ChangesView } from "./changes-view.js";
 import { depthOf, unsearched, findArgs, parseFound, REPO_STATUS, LATEST_TAG, FETCH, REMOTES, fetchable, parseRepoStatus, parseRemotes, webUrl, syncOf } from "./repos.js";
 
 // The frame the shown tab's panes are drawn in, so the panel beside them takes the
@@ -157,6 +158,8 @@ export class Graph {
     // Herdr's agents per machine, for a row's "New … tab" (as its + menu lists them).
     this.agents = new Map();
     this.handle = cx.focus_handle();
+    // The Changes tab: fed each status read, drawn when its tab shows.
+    this.changes = new ChangesView(); this.changes.init(this, cx);
     this.reset();
     this.refresh(cx);
     cx.timer.after(1500, (cx) => this.warm(cx));
@@ -240,6 +243,7 @@ export class Graph {
           }
           if (!opened) this.workspace = null;
           if (!on) this.watch(read.root, context, cx);
+          this.changes.update(read.files, Boolean(read.head), cx);
           // A second look that finds nothing new leaves the table as it is.
           const shown = this.state === "ready" || this.state === "empty";
           if (shown && read.signature === this.signature && read.scope === this.scope && sameFiles(read.files, this.files)) return;
@@ -248,6 +252,7 @@ export class Graph {
           const status = await exec("git", [...READ, ...STATUS], { cwd: this.root, on: this.on });
           if (stale()) return;
           const files = status.code === 0 ? parseStatus(status.stdout) : [];
+          this.changes.update(files, Boolean(this.head), cx);
           if (sameFiles(files, this.files)) return;
           this.files = files;
         }
@@ -413,6 +418,9 @@ export class Graph {
       this.statusTimer = false; this.lastStatus = Date.now(); this.refresh(cx, false);
     });
   }
+
+  // After the Changes tab runs git: read again now, without the shared "changed" stamp reading twice.
+  refreshNow(cx) { this.seenChange = shared("git-graph.changed"); this.refresh(cx); }
 
   loadMore(cx) { this.limit += PAGE; this.refresh(cx); cx.notify(); }
   setScope(all, cx) { if (this.all !== all) { this.all = all; this.limit = PAGE; this.refresh(cx); } cx.notify(); }
@@ -917,12 +925,14 @@ export class Graph {
     const setting = `${depthSetting()} ${tagsShown()}`;
     if (setting !== this.seenSetting) { const first = this.seenSetting === undefined; this.seenSetting = setting; if (!first && !this.opened) this.refresh(cx); }
     const t = theme(), mono = settings().font_family ?? "JetBrains Mono", ready = this.state === "ready";
+    const changesTab = this.changes.view() === "changes";
     return v_flex().id("git-graph").size_full().min_h(0).rounded(paneFrame(layout())?.radius ?? 0).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(12.5).track_focus(this.handle)
       .on_mouse_move((e, cx) => this.moveDrag(e, cx))
       .on_mouse_up("left", (_e, cx) => this.endDrag(cx))
       .on_hover((hovered, cx) => { if (!hovered) this.endDrag(cx); })
       .on_key_down((e, cx) => {
+        if (e.key === "escape" && this.changes.view() === "changes" && this.changes.escape()) { cx.stop_propagation(); cx.notify(); return; }
         if (e.key !== "escape" || !(this.selected || this.opened)) return;
         // Esc closes the dropdown, a diff, then the details, then goes back to the Manygit list.
         if (this.picking) this.picking = false; else if (this.diff) this.diff = null; else if (this.selected) { this.selected = null; this.details = null; } else this.back(cx);
@@ -937,10 +947,12 @@ export class Graph {
         if (wide !== this.wide || graphMax !== this.graphMax || resized) { this.wide = wide; this.graphMax = graphMax; cx.notify(); }
       })
       .child(this.header(t))
-      .when(this.state === "workspace", (e) => e.child(this.workspaceList(t)))
+      .child(this.changes.sideTabs(t))
       .when(Boolean(this.picking && this.workspace && this.opened), (e) => e.child(this.picker(t)))
-      .when(ready, (e) => e.child(this.toolbar(t)).child(this.columns(t, this.graphWidth())).child(this.list(t, mono))
+      .when(changesTab, (e) => e.child(this.state === "workspace" || this.root ? this.changes.render(t, mono) : this.empty(t)))
+      .when(!changesTab && this.state === "workspace", (e) => e.child(this.workspaceList(t)))
+      .when(!changesTab && ready, (e) => e.child(this.toolbar(t)).child(this.columns(t, this.graphWidth())).child(this.list(t, mono))
         .when(Boolean(this.selected), (el) => el.child(this.detailsPane(t, mono))))
-      .when(!ready && this.state !== "workspace", (e) => e.child(this.empty(t)));
+      .when(!changesTab && !ready && this.state !== "workspace", (e) => e.child(this.empty(t)));
   }
 }

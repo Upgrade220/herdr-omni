@@ -77,3 +77,14 @@ export function commitPlan(title, body, stagedCount) {
   if (stagedCount === 0) list.unshift(["add", "-A"]);
   return list;
 }
+
+// A working-tree diff of one path: the index against HEAD (staged) or the files against the index.
+export const workDiffArgs = (staged, path) => ["diff", ...(staged ? ["--cached"] : []), "--no-color", "--no-ext-diff", "--no-textconv", "--", path];
+
+// fileTree rows without those under a collapsed dir (a Set of dir paths).
+export function visibleRows(rows, collapsed) {
+  const hidden = [...collapsed].map((dir) => dir + "/");
+  return rows.filter((r) => !hidden.some((h) => r.path.startsWith(h)));
+}
+
+export const commitLabel = (stagedCount, workCount) => (stagedCount ? "Commit" : workCount ? "Commit all" : "Nothing to commit");
