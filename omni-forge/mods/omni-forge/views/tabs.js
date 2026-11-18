@@ -5,6 +5,8 @@ export const MAX_TABS = 8;
 
 const RUNS = { id: "runs", kind: "runs", label: "Runs" };
 
+const runLabel = ({ id, title, number }) => (number != null ? `#${number} ${title ?? ""}`.trim() : title || `Run ${id}`);
+
 export class Tabs {
   constructor() {
     this.onEvict = null; // (tab) => void, so the owner can drop what the tab held
@@ -28,8 +30,15 @@ export class Tabs {
   }
 
   openRun({ id, title, number, status }) {
-    const label = number != null ? `#${number} ${title ?? ""}`.trim() : title || `Run ${id}`;
-    return this.open({ id: `run:${id}`, kind: "run", label, runId: String(id), status });
+    return this.open({ id: `run:${id}`, kind: "run", label: runLabel({ id, title, number }), runId: String(id), status });
+  }
+
+  // A run tab opened from a watch key only knows the id; once loaded it gets its real name.
+  setRun({ id, title, number, status }) {
+    const tab = this.find(`run:${id}`);
+    if (!tab) return;
+    tab.label = runLabel({ id, title, number });
+    if (status) tab.status = status;
   }
 
   openLog({ runId, jobId, name, status }) {

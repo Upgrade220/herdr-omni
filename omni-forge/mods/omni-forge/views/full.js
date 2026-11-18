@@ -187,7 +187,8 @@ export class FullView extends RepoView {
 
   // Runs first, then run and log tabs with their status and a close button.
   tabStrip(t) {
-    return h_flex().id("full-tabs").flex_none().px(10).py(6).gap(6).items_center().overflow_x_scrollbar()
+    // A fixed height: a horizontal scroll area would otherwise take the body's space.
+    return h_flex().id("full-tabs").flex_none().h(40).px(10).gap(6).items_center().overflow_x_scrollbar()
       .border_b_1().border_color(t.border)
       .children(this.tabs.list.map((tab, i) => {
         const active = tab.id === this.tabs.selected;

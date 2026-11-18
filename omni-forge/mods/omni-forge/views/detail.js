@@ -47,7 +47,7 @@ export class Detail {
         if (this.owner.details.get(this.runId) !== this || this.provider !== provider) return;
         this.data = data;
         this.run = data.run;
-        this.owner.tabs?.setStatus(`run:${this.runId}`, data.run.status);
+        this.owner.tabs?.setRun({ ...data.run, id: this.runId });
         for (const g of data.groups) for (const j of g.jobs) this.owner.tabs?.setStatus(`log:${this.runId}:${j.id}`, j.status);
         this.error = null;
         this.errors = 0;

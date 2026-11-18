@@ -45,3 +45,24 @@ test("a job with artifacts gets an Artifacts action; one without doesn't", () =>
   assert.ok(withArt.some((a) => a.label === "Artifacts"));
   assert.ok(!without.some((a) => a.label === "Artifacts"));
 });
+
+test("a loaded run renames its tab from the placeholder to #number title", async () => {
+  const { Detail, Tabs } = load(["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/ui.js", "views/tabs.js", "views/detail.js"], {
+    exec: async () => ({ code: 0 }), home: () => "/h", notify: () => {}, focused: () => null, openSendDialog: () => {},
+  });
+  const tabs = new Tabs();
+  tabs.openRun({ id: "12" });
+  const owner = {
+    repo: { kind: "gitlab", host: "gl.test", path: "g/p" },
+    provider: { capabilities: {}, runDetail: async () => ({ run: { id: "12", number: 258, title: "Fix totals", status: "failed" }, groups: [], artifacts: [] }) },
+    watches: { add() {} }, details: new Map(), tabs,
+  };
+  const detail = new Detail(owner, "12");
+  owner.details.set("12", detail);
+  const pending = [];
+  const cx = { notify() {}, spawn(fn) { pending.push(fn(cx)); } };
+  detail.load(cx);
+  await Promise.all(pending);
+  assert.equal(tabs.find("run:12").label, "#258 Fix totals");
+  assert.equal(tabs.find("run:12").status, "failed");
+});
