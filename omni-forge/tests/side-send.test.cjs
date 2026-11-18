@@ -128,8 +128,8 @@ test("send to a running agent: hc send argv, then remember and close", async () 
   view.send(cx);
   await settle();
   assert.equal(env.hc.length, 1);
-  assert.deepEqual(plain(env.hc[0].slice(0, 2)), ["send", "t5"]);
-  assert.equal(env.hc[0][2], view.prompt.value().trim());
+  // "--" ends options, so a prompt that starts with "-" is never read as a flag.
+  assert.deepEqual(plain(env.hc[0]), ["send", "t5", "--", view.prompt.value().trim()]);
   assert.equal(env.shared["omni-forge.send.agent"], "running:t5");
   assert.deepEqual(plain(env.closed), ["o1"]);
   assert.deepEqual(env.notes, []);

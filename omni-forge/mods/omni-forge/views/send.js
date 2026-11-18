@@ -137,7 +137,7 @@ export class SendView {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const res = await hc(["send", choice.terminal, text]);
+        const res = await hc(["send", choice.terminal, "--", text]);
         if (res.code !== 0) throw new Error(res.stderr.trim() || `hc send exited with ${res.code}`);
         setShared(LAST_AGENT, choice.key);
         this.close();
