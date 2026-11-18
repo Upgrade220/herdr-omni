@@ -28,8 +28,10 @@ export class LogView {
     cx.timer.every(POLL_MS, (cx) => { if (this.live) this.refresh(cx); });
   }
 
-  initEmbedded(given, cx) {
+  // onStatus(status): the job's status as each refresh learns it, so the owner's tab can show it.
+  initEmbedded(given, cx, { onStatus = null } = {}) {
     this.setup(given ?? {});
+    this.onStatus = onStatus;
     if (checking()) return;
     this.refresh(cx);
   }
@@ -41,6 +43,8 @@ export class LogView {
 
   setup(given) {
     this.props = given;
+    // Element ids carry the job, so each log tab keeps its own measured size and scroll.
+    this.uid = String(given.jobId ?? "").split("/").pop() || "x";
     this.provider = providerFor(this.props);
     this.scroll = VirtualListScrollHandle.new();
     this.log = { lines: [], firstError: null };
@@ -60,9 +64,8 @@ export class LogView {
   refresh(cx) {
     if (this.busy) return;
     this.busy = true;
+    cx.notify(); // the header spinner shows at once
     cx.spawn(async (cx) => {
-      const state = () => [this.loaded, this.live, this.available, this.truncated, this.error?.message, this.error?.hint, this.url, this.lastText];
-      const before = state();
       try {
         const res = await this.provider.jobLog(this.props.jobId, { maxBytes: MAX_BYTES });
         this.error = null;
@@ -82,6 +85,7 @@ export class LogView {
             const job = findJob(detail, this.props.jobId);
             this.url = job?.url || detail.run?.url || this.url;
             if (liveLog) this.live = job ? job.status === "running" || job.status === "pending" : false;
+            if (job?.status) this.onStatus?.(job.status);
           } catch (e) {
             this.error = failure(e, "Could not check job status: ");
           }
@@ -94,7 +98,7 @@ export class LogView {
         this.loaded = true;
         this.nextAt = Date.now() + POLL_MS;
       }
-      if (state().some((v, i) => v !== before[i])) cx.notify();
+      cx.notify(); // always: busy is over, and the spinner must clear
       // The list is first drawn on the frame after this notify; a scroll asked before then is lost.
       if (!this.scrolled && this.log.firstError !== null) {
         this.scrolled = true;
@@ -141,13 +145,13 @@ export class LogView {
       const lines = this.log.lines;
       const height = Math.max(ROW * 3, (this.size?.height ?? 400) - HEADER - NOTE * notes.length);
       body = v_flex().relative().flex_none().w_full().h(height)
-        .child(v_virtual_list("log-lines", lines.length, ROW, (i) => String(i),
+        .child(v_virtual_list(`log-lines-${this.uid}`, lines.length, ROW, (i) => String(i),
           (range) => lines.slice(range.start, range.end).map((line, k) => this.row(t, mono, color, line, range.start + k)))
           .track_scroll(this.scroll).px(12).font_family(mono).text_size(12).text_color(t.foreground))
-        .child(Scrollbar.vertical("log-lines").absolute().inset_0());
+        .child(Scrollbar.vertical(`log-lines-${this.uid}`).absolute().inset_0());
     }
 
-    return v_flex().id("log-root").size_full().bg(t.background)
+    return v_flex().id(`log-root-${this.uid}`).size_full().bg(t.background)
       .on_size_change((size, cx) => { this.size = size; cx.notify(); })
       .child(header).children(notes).when(Boolean(body), (e) => e.child(body));
   }

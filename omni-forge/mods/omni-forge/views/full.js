@@ -120,7 +120,8 @@ export class FullView extends RepoView {
     const tab = this.tabs.openLog({ runId, jobId: job.id, name: job.name, status: job.status });
     if (!this.logs.has(tab.id)) {
       const view = new LogView();
-      view.initEmbedded({ ...this.repo, runId: String(runId), jobId: job.id, name: job.name }, cx);
+      view.initEmbedded({ ...this.repo, runId: String(runId), jobId: job.id, name: job.name }, cx,
+        { onStatus: (status) => this.tabs.setStatus(tab.id, status) });
       this.logs.set(tab.id, view);
     }
     cx.notify();

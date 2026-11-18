@@ -194,3 +194,72 @@ test("an embedded LogView starts no timer; the owner's tick polls it while live 
   view.tick(cx, view.nextAt + 1e9); // finished: no more polling
   assert.deepEqual(asked, ["log", "log"]);
 });
+
+// ---- final-review fixes ----------------------------------------------------------
+
+function el(ids) {
+  const node = new Proxy(function () {}, {
+    get: (_t, key) => (key === "id" ? (v) => { ids.push(v); return node; } : () => node),
+    apply: () => node,
+  });
+  return node;
+}
+
+function embedded({ status = "running", ids = [], notes = { n: 0 } } = {}) {
+  const job = { id: "gid://gitlab/Ci::Build/9", status, url: "u" };
+  const g = {
+    checking: () => false,
+    props: () => ({}),
+    theme: () => new Proxy({}, { get: () => "#000000" }),
+    settings: () => ({}),
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+    providerFor: () => ({
+      capabilities: { liveLog: true },
+      jobLog: async () => ({ text: "a\n", truncated: false, available: true }),
+      runDetail: async () => ({ run: {}, groups: [{ name: "b", jobs: [job] }] }),
+    }),
+  };
+  for (const name of ["div", "v_flex", "h_flex", "v_virtual_list"]) g[name] = () => el(ids);
+  g.Scrollbar = { vertical: (id) => { ids.push(id); return el(ids); } };
+  const { LogView } = load(["ci/log.js", "views/log.js"], g);
+  const pending = [];
+  const cx = { timer: { every() {}, after() {} }, notify: () => notes.n++, spawn(fn) { pending.push(fn(cx)); } };
+  return { LogView, cx, pending, job, ids, notes };
+}
+
+test("each embedded log renders its own element ids, so switching logs re-measures", async () => {
+  const { LogView, cx, pending, ids } = embedded();
+  const view = new LogView();
+  view.initEmbedded({ runId: "5", jobId: "gid://gitlab/Ci::Build/9", name: "j" }, cx);
+  await Promise.all(pending.splice(0));
+  view.render(cx);
+  assert.ok(ids.includes("log-root-9"), JSON.stringify(ids));
+  assert.ok(ids.includes("log-lines-9"));
+  assert.ok(!ids.includes("log-root"));
+});
+
+test("refresh notifies when it starts and when it ends, even with nothing new", async () => {
+  const { LogView, cx, pending, notes } = embedded();
+  const view = new LogView();
+  view.initEmbedded({ runId: "5", jobId: "9", name: "j" }, cx);
+  await Promise.all(pending.splice(0));
+  notes.n = 0;
+  view.refresh(cx);
+  assert.equal(view.busy, true);
+  assert.equal(notes.n, 1); // the spinner shows at once
+  await Promise.all(pending.splice(0));
+  assert.equal(view.busy, false);
+  assert.equal(notes.n, 2); // and clears though the log didn't change
+});
+
+test("an embedded log reports its job's status to the owner", async () => {
+  const seen = [];
+  const { LogView, cx, pending, job } = embedded({ status: "running" });
+  const view = new LogView();
+  view.initEmbedded({ runId: "5", jobId: "9", name: "j" }, cx, { onStatus: (s) => seen.push(s) });
+  await Promise.all(pending.splice(0));
+  job.status = "failed";
+  view.refresh(cx);
+  await Promise.all(pending.splice(0));
+  assert.deepEqual(seen, ["running", "failed"]);
+});
