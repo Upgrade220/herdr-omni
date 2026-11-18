@@ -10,7 +10,7 @@ export const VERSION = "0.3.3";
 const CHECK = true;
 const REPO = "rabeeh-ta/herdr-git-graph";
 const DAY = 24 * 60 * 60 * 1000;
-export const PROMPT = `Update the git-graph mod from github.com/${REPO}`;
+export const PROMPT = `In herdr-omni, run scripts/upstream.sh sync git-graph, then git-graph/sync.sh`;
 
 // a > b for tags like v1.2.3.
 export function newer(a, b) {

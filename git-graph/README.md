@@ -1,5 +1,15 @@
 # Git Graph for Herdr
 
+## Changes in herdr-omni
+
+This copy is adapted from [rabeeh-ta/herdr-git-graph](https://github.com/rabeeh-ta/herdr-git-graph) (v0.3.3, MIT). Work in progress:
+
+- A Changes view: stage, unstage, discard and diff files, ported from git-panel in [LaiqianDS/herdr-mods](https://github.com/LaiqianDS/herdr-mods) (Apache-2.0).
+- Branch switching and creation from a picker.
+- A commit box.
+- A full tab named Git, with the graph, changes and commit together.
+- The update window's prompt points at `scripts/upstream.sh sync git-graph`; install with `git-graph/sync.sh`.
+
 A commit graph for the [Herdr](https://herdr.dev) desktop app, in the spirit of
 VS Code's [Git Graph](https://github.com/mhutchie/vscode-git-graph) extension:
 every branch's history as colored lanes, branch and tag labels, and the git
