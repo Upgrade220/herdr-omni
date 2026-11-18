@@ -54,6 +54,7 @@ test("LogView reads props() when init is given an empty object", async () => {
   const given = { view: "log", kind: "gitlab", host: "gl.test", path: "g/p", runId: "5", jobId: "gid://gitlab/Ci::Build/9", name: "unit" };
   const asked = [];
   const { LogView } = load(["ci/log.js", "views/log.js"], {
+    checking: () => false,
     props: () => given,
     VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
     providerFor: (p) => ({
@@ -97,6 +98,7 @@ test("LogView jumps to the first error once, after the list has been drawn", asy
   const scrolls = [];
   const afters = [];
   const { LogView } = load(["ci/log.js", "views/log.js"], {
+    checking: () => false,
     props: () => ({}),
     VirtualListScrollHandle: { new: () => ({ scroll_to_item: (i, how) => scrolls.push([i, how]) }) },
     providerFor: () => ({
@@ -117,4 +119,46 @@ test("LogView jumps to the first error once, after the list has been drawn", asy
   await Promise.all(pending.splice(0));
   afters.splice(0).forEach((fn) => fn(cx));
   assert.equal(scrolls.length, 1);
+});
+
+test("LogView runs no CLI and starts no timer during herdr-app check", () => {
+  const asked = [];
+  const { LogView } = load(["ci/log.js", "views/log.js"], {
+    checking: () => true,
+    props: () => ({}),
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+    providerFor: () => ({ capabilities: { liveLog: true }, jobLog: async () => asked.push("log"), runDetail: async () => asked.push("detail") }),
+  });
+  let timers = 0;
+  const cx = { timer: { every: () => timers++, after: () => timers++ }, notify() {}, spawn: (fn) => asked.push("spawn") };
+  new LogView().init({ jobId: "1", name: "j" }, cx);
+  assert.deepEqual(asked, []);
+  assert.equal(timers, 0);
+});
+
+test("LogView keeps the ForgeError hint for the error note", async () => {
+  const fail = (message, hint) => Object.assign(new Error(message), { name: "ForgeError", hint });
+  let logFails = true;
+  const { LogView } = load(["ci/log.js", "views/log.js"], {
+    checking: () => false,
+    props: () => ({}),
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+    providerFor: () => ({
+      capabilities: { liveLog: true },
+      jobLog: async () => { if (logFails) throw fail("Not logged in to gl.test", "glab auth login --hostname gl.test"); return { text: "ok\n", truncated: false, available: true }; },
+      runDetail: async () => { throw fail("Forbidden", "Access denied. Check the token's scopes (glab auth login --hostname gl.test)"); },
+    }),
+  });
+  const pending = [];
+  const cx = { timer: { every() {}, after() {} }, notify() {}, spawn(fn) { pending.push(fn(cx)); } };
+  const view = new LogView();
+  view.init({ jobId: "1", name: "j" }, cx);
+  await Promise.all(pending.splice(0));
+  assert.equal(view.error.message, "Not logged in to gl.test");
+  assert.equal(view.error.hint, "glab auth login --hostname gl.test");
+  logFails = false;
+  view.refresh(cx);
+  await Promise.all(pending.splice(0));
+  assert.equal(view.error.message, "Could not check job status: Forbidden");
+  assert.match(view.error.hint, /glab auth login --hostname gl\.test/);
 });

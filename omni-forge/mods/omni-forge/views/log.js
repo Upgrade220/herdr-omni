@@ -3,7 +3,7 @@
 // Lines render through a virtual list with a fixed row height, so a 2 MB log stays cheap.
 import { div } from "gpui-kit";
 import { v_flex, h_flex, v_virtual_list, VirtualListScrollHandle, Scrollbar } from "gpui-base";
-import { theme, settings, props } from "herdr";
+import { theme, settings, props, checking } from "herdr";
 import { providerFor } from "../forge/providers.js";
 import { cleanLog, findJob } from "../ci/log.js";
 
@@ -12,6 +12,9 @@ const POLL_MS = 5000;
 const ROW = 18;
 const HEADER = 40;
 const NOTE = 28;
+
+// A failure as { message, hint }: the hint (a ForgeError's login or access advice) shows in code font.
+const failure = (e, prefix = "") => ({ message: prefix + String(e?.message ?? e), hint: e?.hint ?? "" });
 
 export class LogView {
   init(given, cx) {
@@ -30,6 +33,7 @@ export class LogView {
     this.scrolled = false;
     this.lastText = null;
     this.size = null;
+    if (checking()) return;
     this.refresh(cx);
     cx.timer.every(POLL_MS, (cx) => { if (this.live) this.refresh(cx); });
   }
@@ -38,7 +42,8 @@ export class LogView {
     if (this.busy) return;
     this.busy = true;
     cx.spawn(async (cx) => {
-      const before = [this.loaded, this.live, this.available, this.truncated, this.error, this.url, this.lastText];
+      const state = () => [this.loaded, this.live, this.available, this.truncated, this.error?.message, this.error?.hint, this.url, this.lastText];
+      const before = state();
       try {
         const res = await this.provider.jobLog(this.props.jobId, { maxBytes: MAX_BYTES });
         this.error = null;
@@ -59,18 +64,17 @@ export class LogView {
             this.url = job?.url || detail.run?.url || this.url;
             if (liveLog) this.live = job ? job.status === "running" || job.status === "pending" : false;
           } catch (e) {
-            this.error = `Could not check job status: ${String(e?.message ?? e)}`;
+            this.error = failure(e, "Could not check job status: ");
           }
         }
       } catch (e) {
-        this.error = String(e?.message ?? e);
+        this.error = failure(e);
         this.live = false;
       } finally {
         this.busy = false;
         this.loaded = true;
       }
-      const after = [this.loaded, this.live, this.available, this.truncated, this.error, this.url, this.lastText];
-      if (after.some((v, i) => v !== before[i])) cx.notify();
+      if (state().some((v, i) => v !== before[i])) cx.notify();
       // The list is first drawn on the frame after this notify; a scroll asked before then is lost.
       if (!this.scrolled && this.log.firstError !== null) {
         this.scrolled = true;
@@ -100,7 +104,14 @@ export class LogView {
     const showLog = this.loaded && this.available && this.log.lines.length > 0;
     const notes = [];
     if (this.truncated && showLog) notes.push(note(`truncated (showing last ${MAX_BYTES / 1_000_000} MB)`, t.dim));
-    if (this.error) notes.push(note(this.error, t.ansi1));
+    if (this.error) {
+      notes.push(note(this.error.message, t.ansi1));
+      if (this.error.hint) {
+        notes.push(h_flex().flex_none().h(NOTE).px(12).items_center()
+          .child(div().min_w(0).px(8).py(2).rounded(6).bg(t.raised).text_size(12).font_family(mono)
+            .text_color(t.foreground).truncate().child(this.error.hint)));
+      }
+    }
     if (!this.loaded) notes.push(note("Loading log..."));
     else if (!this.available) notes.push(note("Log available when the job finishes"));
     else if (this.log.lines.length === 0 && !this.error) notes.push(note("The log is empty"));
