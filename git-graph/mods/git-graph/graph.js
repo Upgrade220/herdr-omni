@@ -10,7 +10,7 @@ import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, parseLog, parseStatus, withU
 import { perform, openDialog, showChanges } from "./act.js";
 import { icon } from "./menu.js";
 import { available, check, openUpdate, newer } from "./update.js";
-import { ChangesView } from "./changes-view.js";
+import { ChangesView, TAB_H } from "./changes-view.js";
 import { depthOf, unsearched, findArgs, parseFound, REPO_STATUS, LATEST_TAG, FETCH, REMOTES, fetchable, parseRepoStatus, parseRemotes, webUrl, syncOf } from "./repos.js";
 
 // The frame the shown tab's panes are drawn in, so the panel beside them takes the
@@ -419,6 +419,9 @@ export class Graph {
     });
   }
 
+  // CHROME_H plus the side tab strip, which every graph draws under its header for now.
+  chromeH() { return CHROME_H + TAB_H; }
+
   // After the Changes tab runs git: read again now, without the shared "changed" stamp reading twice.
   refreshNow(cx) { this.seenChange = shared("git-graph.changed"); this.refresh(cx); }
 
@@ -475,7 +478,7 @@ export class Graph {
 
   // The details strip's height (it holds the diff too): a dragged height, else what the list leaves.
   clampDetail(h) {
-    const room = Math.max(DETAIL_MIN, (this.height ?? 900) - CHROME_H - DETAIL_ROWS * this.rowH());
+    const room = Math.max(DETAIL_MIN, (this.height ?? 900) - this.chromeH() - DETAIL_ROWS * this.rowH());
     return Math.round(Math.max(DETAIL_MIN, Math.min(room, h)));
   }
   detailHeight() {
@@ -483,7 +486,7 @@ export class Graph {
     // The room the history leaves: a short history hands it all to the strip, a long one keeps 320
     // and a short pane gets whatever fits rather than clipping the list.
     const rows = (this.commits.length + (this.hasMore ? 1 : 0)) * this.rowH();
-    return this.clampDetail(Math.max(DETAIL_DEFAULT, (this.height ?? 900) - CHROME_H - rows));
+    return this.clampDetail(Math.max(DETAIL_DEFAULT, (this.height ?? 900) - this.chromeH() - rows));
   }
   startDetailDrag(e, cx) {
     cx.stop_propagation();

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as G from "../mods/git-graph/git.js";
 import * as C from "../mods/git-graph/changes.js";
@@ -131,4 +131,27 @@ test("commitLabel: Commit, Commit all, Nothing to commit", () => {
   assert.equal(C.commitLabel(1, 3), "Commit");
   assert.equal(C.commitLabel(0, 2), "Commit all");
   assert.equal(C.commitLabel(0, 0), "Nothing to commit");
+});
+
+test("no-HEAD repo: unstage a file edited after staging (AM) keeps the edit", () => {
+  for (const all of [false, true]) {
+    const repo = mk(false);
+    write(repo, "f.txt", "one\n"); git(repo, ["add", "f.txt"]); write(repo, "f.txt", "two\n");
+    apply(repo, all ? C.unstageAllArgs(false) : C.unstageArgs(["f.txt"], false));
+    assert.equal(git(repo, ["ls-files", "--cached"]), "");
+    assert.equal(readFileSync(join(repo, "f.txt"), "utf8"), "two\n");
+  }
+});
+
+test("conflicts: commitPlan refuses, commitLabel says resolve first", () => {
+  assert.equal(C.commitPlan("t", "", 0, true), null);
+  assert.equal(C.commitPlan("t", "", 2, true), null);
+  assert.equal(C.commitLabel(0, 2, true), "Resolve conflicts first");
+  assert.equal(C.commitLabel(1, 2, false), "Commit");
+});
+
+test("diffWidth: no spread, works on many rows", () => {
+  const rows = Array.from({ length: 200000 }, (_x, i) => ({ text: i === 5 ? "x".repeat(100) : "a" }));
+  assert.equal(C.diffWidth(rows), 100 * 6.6 + 60);
+  assert.equal(C.diffWidth([]), 300);
 });

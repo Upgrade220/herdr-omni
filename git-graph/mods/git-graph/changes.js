@@ -55,8 +55,10 @@ export function fileTree(changes) {
 
 export const stageArgs = (paths) => [["add", "--", ...paths]];
 export const stageAllArgs = () => [["add", "-A"]];
-export const unstageArgs = (paths, hasHead) => [hasHead ? ["restore", "--staged", "--", ...paths] : ["rm", "--cached", "-q", "--", ...paths]];
-export const unstageAllArgs = (hasHead) => [hasHead ? ["restore", "--staged", "--", "."] : ["rm", "-r", "--cached", "-q", "--", "."]];
+export const unstageArgs = (paths, hasHead) => [hasHead ? ["restore", "--staged", "--", ...paths] : ["rm", "--cached", "-f", "-q", "--", ...paths]];
+export const unstageAllArgs = (hasHead) => [hasHead ? ["restore", "--staged", "--", "."] : ["rm", "-r", "--cached", "-f", "-q", "--", "."]];
+
+// -f: with --cached it only drops the index entry, even when the file was edited after staging.
 
 // Discard only touches the working tree; staged changes stay.
 export function discardPlan(changes) {
@@ -70,9 +72,10 @@ export function discardPlan(changes) {
   return { text: `${text} This cannot be undone.`, list };
 }
 
-export function commitPlan(title, body, stagedCount) {
+// conflicted: an unmerged file is left; git refuses the commit, and "add -A" would mark it resolved.
+export function commitPlan(title, body, stagedCount, conflicted = false) {
   const t = title.trim(), b = (body ?? "").trim();
-  if (!t) return null;
+  if (!t || conflicted) return null;
   const list = [["commit", "-m", t, ...(b ? ["-m", b] : [])]];
   if (stagedCount === 0) list.unshift(["add", "-A"]);
   return list;
@@ -87,4 +90,8 @@ export function visibleRows(rows, collapsed) {
   return rows.filter((r) => !hidden.some((h) => r.path.startsWith(h)));
 }
 
-export const commitLabel = (stagedCount, workCount) => (stagedCount ? "Commit" : workCount ? "Commit all" : "Nothing to commit");
+export const commitLabel = (stagedCount, workCount, conflicted = false) =>
+  (conflicted ? "Resolve conflicts first" : stagedCount ? "Commit" : workCount ? "Commit all" : "Nothing to commit");
+
+// A diff's scrolling width; reduce, not a spread, which overflows the stack on a huge diff.
+export const diffWidth = (rows) => rows.reduce((w, r) => Math.max(w, r.text.length * 6.6 + 60), 300);

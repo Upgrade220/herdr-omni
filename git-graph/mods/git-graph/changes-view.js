@@ -7,12 +7,14 @@ import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, Scrollbar, 
 import { exec, readTextFile, shared, setShared } from "herdr";
 import { READ, diffRows, gitError } from "./git.js";
 import { splitChanges, changeCount, fileTree, visibleRows, stageArgs, stageAllArgs, unstageArgs, unstageAllArgs,
-  discardPlan, commitPlan, commitLabel, workDiffArgs } from "./changes.js";
+  discardPlan, commitPlan, commitLabel, workDiffArgs, diffWidth } from "./changes.js";
 import { followFileIcons, fileIcon, isLight } from "./file-icons.js";
 import { icon } from "./menu.js";
 import { VIEW_KEY } from "./place.js";
 
 const DIFF_ROW = 20, MAX_ROWS = 1000;
+// The side tab strip's height (its border inside it): the graph counts it above its list.
+export const TAB_H = 34;
 const markColor = (t, s) => (s === "A" ? t.ansi2 : s === "D" || s === "!" ? t.ansi1 : t.ansi3);
 const MARK_NAME = { M: "Modified", A: "Added", D: "Deleted", U: "Untracked", "!": "Conflict" };
 
@@ -102,10 +104,12 @@ export class ChangesView {
   }
 
   commit(cx) {
-    const list = commitPlan(this.title, this.body.value(), this.staged.length);
+    const list = commitPlan(this.title, this.body.value(), this.staged.length, this.conflicted());
     if (!list || this.busy || !(this.staged.length + this.work.length)) return;
     this.run(list, cx, () => { this.title = ""; this.input.set_value(""); this.body.set_value(""); });
   }
+
+  conflicted() { return this.work.some((f) => f.s === "!"); }
 
   setTree(tree, cx) { this.tree = tree; localStorage.setItem("tree", String(tree)); cx.notify(); }
   setCommitOpen(open, cx) { this.commitOpen = open; localStorage.setItem("commitOpen", String(open)); cx.notify(); }
@@ -130,7 +134,7 @@ export class ChangesView {
   loadDiff(d, cx) {
     const root = this.root, on = this.owner.on;
     cx.spawn(async (cx) => {
-      let rows;
+      let rows, width;
       try {
         if (d.fresh) {
           const text = await readTextFile(`${root}/${d.path}`, { on }).catch(() => null);
@@ -141,9 +145,10 @@ export class ChangesView {
           if (r.code !== 0) throw new Error(gitError(r));
           rows = diffRows(r.stdout) ?? [{ kind: "", text: "Binary file changed or no text changes" }];
         }
-      } catch (e) { rows = [{ kind: "", text: `Can't show this diff: ${e?.message ?? e}` }]; }
+        width = diffWidth(rows);
+      } catch (e) { rows = [{ kind: "", text: `Can't show this diff: ${e?.message ?? e}` }]; width = 300; }
       if (this.diff !== d) return;
-      d.rows = rows; d.width = Math.max(300, ...rows.map((r) => r.text.length * 6.6 + 60));
+      d.rows = rows; d.width = width;
       cx.notify();
     });
   }
@@ -159,7 +164,7 @@ export class ChangesView {
       .on_click((_e, cx) => { if (this.view() !== id) { setShared(VIEW_KEY, id); cx.notify(); } })
       .child(label)
       .when(badge > 0, (e) => e.child(div().flex_none().px(6).rounded(8).bg(t.hover).text_size(10).text_color(t.muted).child(String(badge))));
-    return h_flex().h(34).flex_none().px(8).gap(4).items_center().border_b(1).border_color(t.border)
+    return h_flex().h(TAB_H).flex_none().px(8).gap(4).items_center().border_b(1).border_color(t.border)
       .child(tab("changes", "Changes", n)).child(tab("graph", "Graph", 0));
   }
 
@@ -229,7 +234,8 @@ export class ChangesView {
     const box = v_flex().flex_none().border_b(1).border_color(t.border).child(fold);
     if (!this.commitOpen) return box;
     const changes = this.staged.length + this.work.length;
-    const enabled = Boolean(this.title.trim() && !this.busy && changes);
+    const conflicted = this.conflicted();
+    const enabled = Boolean(this.title.trim() && !this.busy && changes && !conflicted);
     const field = (id, focused) => div().id(id).w_full().px(10).rounded(8).border_1().border_color(focused ? t.accent : t.border)
       .when(!focused, (e) => e.hover((s) => s.border_color(t.input))).cursor_text().on_mouse_down("left", (_e, cx) => cx.stop_propagation());
     return box.child(v_flex().px(10).pb(10).gap(8)
@@ -238,9 +244,10 @@ export class ChangesView {
       .child(h_flex().id("commit").w_full().h(30).items_center().justify_center().rounded(8).text_size(12).font_medium()
         .bg(enabled ? t.solid : t.raised).text_color(enabled ? t.solid_foreground : t.dim)
         .when(enabled, (e) => e.cursor_pointer().hover((s) => s.opacity(0.88)))
-        .when(!enabled && !this.busy && changes > 0 && !this.title.trim(), (e) => e.tooltip("Write a commit title first"))
+        .when(!enabled && !this.busy && changes > 0 && !conflicted && !this.title.trim(), (e) => e.tooltip("Write a commit title first"))
+        .when(conflicted && !this.busy, (e) => e.tooltip("Stage each conflicted file once it's resolved"))
         .on_click((_e, cx) => { if (enabled) this.commit(cx); })
-        .child(this.busy ? "Working…" : commitLabel(this.staged.length, this.work.length))));
+        .child(this.busy ? "Working…" : commitLabel(this.staged.length, this.work.length, conflicted))));
   }
 
   lists(t) {
