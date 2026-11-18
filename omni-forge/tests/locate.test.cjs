@@ -146,3 +146,23 @@ test("isVisible: a known own tab decides", () => {
   assert.equal(isVisible({ focused: snapAt("pf", "F").focused, panes: two, windowActive: true, ownTab: "G" }), false);
   assert.equal(isVisible({ focused: snapAt("pf", "F").focused, panes: two, windowActive: true, ownTab: "F" }), true);
 });
+
+test("sidePanelId: the side block's container that sits in a row", () => {
+  const { sidePanelId } = load(["views/locate.js"]);
+  const graph = { id: "root", type: "row", children: [
+    { id: "work", type: "column", children: [
+      { id: "work-body", type: "row", children: [
+        { id: "main", type: "block", content: { tab: "active" } },
+        { id: "panel", type: "column", children: [
+          { id: "panel-body", type: "stack", active: "files", children: [
+            { id: "files", type: "block", content: { mod: "better-files" } },
+            { id: "ci", type: "block", content: { mod: "omni-forge", props: { view: "side" } } },
+          ] },
+        ] },
+      ] },
+    ] },
+  ] };
+  assert.equal(sidePanelId(graph), "panel");
+  assert.equal(sidePanelId({ id: "root", type: "row", children: [{ id: "x", type: "block", content: { mod: "files" } }] }), null);
+  assert.equal(sidePanelId({ id: "root", type: "row", children: [{ id: "ci", type: "block", content: { mod: "omni-forge" } }] }), "ci");
+});

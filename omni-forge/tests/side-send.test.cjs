@@ -45,7 +45,7 @@ test("side click: selects the space's full tab and leaves {tab, key} for it", ()
   view.repo = { kind: "gitlab", host: "gl.test", path: "g/p" };
   view.openInFull({ id: "42" });
   assert.deepEqual(plain(env.shared["omni-forge.open"]), { tab: "F", key: '["gitlab","gl.test","g/p","42"]' });
-  assert.deepEqual(plain(env.runs), [["tab.select", { id: "F" }]]);
+  assert.deepEqual(plain(env.runs), [["tab.select", { id: "F" }], ["layout.hide", { id: "panel-body" }]]);
 });
 
 test("side click: the focused full tab wins over the first one", () => {
@@ -54,7 +54,7 @@ test("side click: the focused full tab wins over the first one", () => {
   view.repo = { kind: "gitlab", host: "gl.test", path: "g/p" };
   view.openInFull({ id: "1" });
   assert.equal(env.shared["omni-forge.open"].tab, "B");
-  assert.deepEqual(plain(env.runs), [["tab.select", { id: "B" }]]);
+  assert.deepEqual(plain(env.runs), [["tab.select", { id: "B" }], ["layout.hide", { id: "panel-body" }]]);
 });
 
 test("side click: no full tab in the space opens a new one on the run, no shared request", () => {
@@ -62,7 +62,7 @@ test("side click: no full tab in the space opens a new one on the run, no shared
   view.repo = { kind: "github", host: "github.com", path: "o/r" };
   view.openInFull({ id: "7" });
   assert.equal(env.shared["omni-forge.open"], undefined);
-  assert.deepEqual(plain(env.runs), [["tab.new", { mod: "omni-forge", props: { view: "full", open: '["github","github.com","o/r","7"]' } }]]);
+  assert.deepEqual(plain(env.runs), [["tab.new", { mod: "omni-forge", props: { view: "full", open: '["github","github.com","o/r","7"]' } }], ["layout.hide", { id: "panel-body" }]]);
 });
 
 test("side tick: the list polls only while the layout shows the side block; watches always run", async () => {
@@ -177,4 +177,19 @@ test("send: nothing goes while the log is loading", () => {
   view.send(cx);
   assert.deepEqual(env.hc, []);
   assert.deepEqual(env.runs, []);
+});
+
+test("Full button: selects the space's full tab on Runs and closes the panel", () => {
+  const { view, env } = sideSetup();
+  view.repo = { kind: "gitlab", host: "gl.test", path: "g/p" };
+  view.openFull();
+  assert.deepEqual(plain(env.shared["omni-forge.open"]), { tab: "F", key: "runs" });
+  assert.deepEqual(plain(env.runs), [["tab.select", { id: "F" }], ["layout.hide", { id: "panel-body" }]]);
+});
+
+test("Full button: no full tab opens a new one (on Runs) and closes the panel", () => {
+  const { view, env } = sideSetup({ panes: [term] });
+  view.openFull();
+  assert.equal(env.shared["omni-forge.open"], undefined);
+  assert.deepEqual(plain(env.runs), [["tab.new", { mod: "omni-forge", props: { view: "full" } }], ["layout.hide", { id: "panel-body" }]]);
 });

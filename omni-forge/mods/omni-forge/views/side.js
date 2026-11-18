@@ -1,12 +1,13 @@
 // Side CI view: the narrow (~360px) block in the right panel beside Files, Changes and Git. A
 // glanceable list only: it follows the focused terminal like the full view (views/repo.js), and a
 // click opens the run in the space's full tab (selecting it and leaving shared("omni-forge.open")
-// for it), or in a new one.
+// for it), or in a new one. The Full button opens that tab on Runs. Both close the side panel,
+// since the full tab has everything the list does.
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { theme, focused, panes, spaces, layout, setShared, checking, run as runCommand } from "herdr";
 import { watchKey } from "../ci/watch.js";
-import { spaceFullTabs, sideVisible, OPEN, MOD } from "./locate.js";
+import { spaceFullTabs, sideVisible, sidePanelId, OPEN, RUNS_KEY, MOD } from "./locate.js";
 import { RepoView } from "./repo.js";
 import { statusIcon, statusPill, pill, button, busyState, message, errorState } from "./ui.js";
 import { dur } from "./runs.js";
@@ -40,7 +41,15 @@ export class SideView extends RepoView {
   // Opens a run in this space's full tab: the focused one when it is a full tab, else the first;
   // that tab's full copy takes {tab, key} in its next tick. Without a full tab, a new one opens on it.
   openInFull(r) {
-    const key = watchKey({ ...this.repo, runId: r.id });
+    this.showFull(watchKey({ ...this.repo, runId: r.id }));
+  }
+
+  // The Full button: the space's full tab on its Runs tab.
+  openFull() {
+    this.showFull(RUNS_KEY);
+  }
+
+  showFull(key) {
     const f = focused();
     const tabs = spaceFullTabs(panes(), spaces(), f?.space);
     const tab = tabs.includes(f?.tab) ? f.tab : tabs[0];
@@ -48,8 +57,11 @@ export class SideView extends RepoView {
       setShared(OPEN, { tab, key });
       runCommand("tab.select", { id: tab });
     } else {
-      runCommand("tab.new", { mod: MOD, props: { view: "full", open: key } });
+      // A new full tab starts on Runs.
+      runCommand("tab.new", { mod: MOD, props: key === RUNS_KEY ? { view: "full" } : { view: "full", open: key } });
     }
+    const panel = sidePanelId(layout());
+    if (panel) runCommand("layout.hide", { id: panel });
   }
 
   // ---- render --------------------------------------------------------------------
@@ -59,6 +71,7 @@ export class SideView extends RepoView {
     const header = h_flex().h(36).flex_none().px(12).gap(8).items_center().border_b_1().border_color(t.border)
       .child(div().flex_none().font_semibold().child("CI"))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(this.repo?.path ?? ""))
+      .child(button(t, "side-full", "⤢ Full", () => this.openFull()))
       .child(button(t, "side-refresh", "⟳", (cx) => this.refresh(cx), { busy: this.listBusy || this.detecting }));
 
     let body;

@@ -247,3 +247,13 @@ test("a repo change closes run and log tabs", async () => {
   assert.equal(view.logs.size, 0);
   assert.deepEqual([...view.details.keys()], ["9"]);
 });
+
+test("shared open with key runs selects the Runs tab", () => {
+  const { view, env, cx } = opened();
+  assert.equal(view.tabs.selected, "run:12");
+  env.shared["omni-forge.open"] = { tab: "F", key: "runs" };
+  view.tick(cx);
+  assert.equal(view.tabs.selected, "runs");
+  assert.equal(env.shared["omni-forge.open"], null);
+  assert.ok(view.details.has("12")); // the run tab stays open
+});

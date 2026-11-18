@@ -14,7 +14,7 @@ import { ago } from "./runs.js";
 import { Detail, WATCHABLE } from "./detail.js";
 import { LogView } from "./log.js";
 import { Tabs } from "./tabs.js";
-import { parseOpen, isVisible, mayTakeOpen, fullTabs, nextLoc, OPEN } from "./locate.js";
+import { parseOpen, isVisible, mayTakeOpen, fullTabs, nextLoc, OPEN, RUNS_KEY } from "./locate.js";
 import { RepoView, sameRepo } from "./repo.js";
 import { statusIcon, runPills, button, busyState, message, errorState, tabPill } from "./ui.js";
 
@@ -89,7 +89,8 @@ export class FullView extends RepoView {
     const asked = shared(OPEN);
     if (asked && mayTakeOpen(asked, { focused: focused(), panes: panes(), ownTab: this.ownTab })) {
       setShared(OPEN, null);
-      this.openKey(asked.key, cx);
+      if (asked.key === RUNS_KEY) this.selectTab("runs", cx);
+      else this.openKey(asked.key, cx);
     }
     if (!this.provider) return;
     const now = Date.now();

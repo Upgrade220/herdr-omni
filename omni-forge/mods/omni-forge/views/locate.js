@@ -130,3 +130,25 @@ export function mayTakeOpen(asked, { focused, panes, ownTab }) {
   const tabs = fullTabs(panes);
   return tabs.length === 1 && tabs[0] === asked.tab;
 }
+
+// The id to hide to close the side view's panel: the side block's nearest ancestor (or the block
+// itself) whose parent is a row, e.g. the right `panel` column holding a `panel-body` stack.
+export function sidePanelId(tree) {
+  const isSide = (n) => n?.type === "block" && n.content?.mod === MOD && (n.content.props?.view ?? "side") === "side";
+  const find = (node, path) => {
+    if (!node) return null;
+    if (isSide(node)) return [...path, node];
+    for (const c of Array.isArray(node.children) ? node.children : []) {
+      const hit = find(c, [...path, node]);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const path = find(tree, []);
+  if (!path) return null;
+  for (let i = path.length - 1; i > 0; i--) if (path[i - 1].type === "row") return path[i].id ?? null;
+  return null;
+}
+
+// shared(OPEN).key asking the full view to show its Runs tab.
+export const RUNS_KEY = "runs";
