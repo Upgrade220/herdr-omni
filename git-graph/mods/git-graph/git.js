@@ -65,7 +65,7 @@ export function parseStatus(text) {
     const xy = entry.slice(0, 2), path = entry.slice(3);
     const status = xy === "??" ? "A" : xy.includes("U") || xy === "AA" || xy === "DD" ? "U" : xy.includes("D") ? "D" : xy.includes("A") ? "A" : "M";
     // staged: the index differs from HEAD (conflicts aren't staged changes).
-    return { path, status, untracked: xy === "??", staged: status !== "U" && xy[0] !== " " && xy[0] !== "?" };
+    return { path, xy, status, untracked: xy === "??", staged: status !== "U" && xy[0] !== " " && xy[0] !== "?" };
   });
 }
 

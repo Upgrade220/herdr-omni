@@ -82,8 +82,8 @@ assert.ok(headRow.segments.some((s) => s[5] && s[3] === 0.5), "the dashed line e
 assert.ok(headRow.segments.filter((s) => s[1] === 0.5).every((s) => !s[5]), "HEAD's own lines are solid");
 assert.equal(G.withUncommitted(commits, 0, tip.hash), commits);
 assert.deepEqual(G.parseStatus(" M a.txt\0?? b.txt\0D  c.txt\0UU d.txt\0"), [
-  { path: "a.txt", status: "M", untracked: false, staged: false }, { path: "b.txt", status: "A", untracked: true, staged: false },
-  { path: "c.txt", status: "D", untracked: false, staged: true }, { path: "d.txt", status: "U", untracked: false, staged: false }]);
+  { path: "a.txt", xy: " M", status: "M", untracked: false, staged: false }, { path: "b.txt", xy: "??", status: "A", untracked: true, staged: false },
+  { path: "c.txt", xy: "D ", status: "D", untracked: false, staged: true }, { path: "d.txt", xy: "UU", status: "U", untracked: false, staged: false }]);
 // The graph reads everything from the pane's folder at once: from a subfolder,
 // status still names paths from the root and the log is the whole history.
 {
