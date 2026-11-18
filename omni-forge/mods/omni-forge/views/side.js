@@ -7,7 +7,7 @@ import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { theme, focused, panes, spaces, layout, setShared, checking, run as runCommand } from "herdr";
 import { watchKey } from "../ci/watch.js";
-import { spaceFullTabs, sideVisible, sidePanelId, OPEN, RUNS_KEY, MOD } from "./locate.js";
+import { spaceFullTabs, sideVisible, sidePanelId, OPEN, RUNS_KEY, MOD, TAB_NAME } from "./locate.js";
 import { RepoView } from "./repo.js";
 import { statusIcon, statusPill, pill, button, busyState, message, errorState } from "./ui.js";
 import { dur } from "./runs.js";
@@ -58,7 +58,7 @@ export class SideView extends RepoView {
       runCommand("tab.select", { id: tab });
     } else {
       // A new full tab starts on Runs.
-      runCommand("tab.new", { mod: MOD, props: key === RUNS_KEY ? { view: "full" } : { view: "full", open: key } });
+      runCommand("tab.new", { name: TAB_NAME, mod: MOD, props: key === RUNS_KEY ? { view: "full" } : { view: "full", open: key } });
     }
     const panel = sidePanelId(layout());
     if (panel) runCommand("layout.hide", { id: panel });

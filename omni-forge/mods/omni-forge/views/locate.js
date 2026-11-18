@@ -152,3 +152,14 @@ export function sidePanelId(tree) {
 
 // shared(OPEN).key asking the full view to show its Runs tab.
 export const RUNS_KEY = "runs";
+
+// What omni-forge's own Herdr tabs are called, and the icon the tab bars draw for them
+// (both bars read a mod tab's icon from shared("mod-icons")).
+export const TAB_NAME = "CI";
+export const MOD_ICON = `mods/${MOD}/icons/ci.svg`;
+
+// The mod-icons map with ours added, or null when it's already there (nothing to write).
+export function withModIcon(map) {
+  if (map?.[MOD] === MOD_ICON) return null;
+  return { ...(map ?? {}), [MOD]: MOD_ICON };
+}

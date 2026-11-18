@@ -115,7 +115,7 @@ export async function watchTick({ watches, providerFor, notify, now }) {
           title: `${id.path} #${run.number ?? before.number} ${WORDS[run.status]}`,
           body: run.title ?? before.title ?? "",
           level: run.status === "success" ? "info" : "error",
-          action: { name: "tab.new", args: { mod: "omni-forge", props: { view: "full", open: key } } },
+          action: { name: "tab.new", args: { name: "CI", mod: "omni-forge", props: { view: "full", open: key } } },
         });
       } finally {
         watches.update(key, run, now());

@@ -9,7 +9,7 @@ import { providerFor } from "../forge/providers.js";
 import { nextDelay } from "../ci/poller.js";
 import { Watches, watchKey, claimOwner, watchTick } from "../ci/watch.js";
 import { filterRuns, chipCounts, anyLive } from "./runs.js";
-import { nextLoc, lastLocUpdate, LAST_LOC } from "./locate.js";
+import { nextLoc, lastLocUpdate, LAST_LOC, withModIcon } from "./locate.js";
 import { filterChip, tabPill, searchBox } from "./ui.js";
 
 const CLAIM_MS = 30000;
@@ -28,6 +28,9 @@ export const sameRepo = (a, b) => Boolean(a && b) && a.kind === b.kind && a.host
 export class RepoView {
   initRepo(prefix, { placeholder }) {
     this.id = `${prefix}-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+    // The tab bars draw a mod tab's icon from shared("mod-icons"): publish ours (init, not render).
+    const icons = withModIcon(shared("mod-icons"));
+    if (icons) setShared("mod-icons", icons);
     this.watches = new Watches({ get: () => shared(WATCHES), set: (v) => setShared(WATCHES, v) });
     this.filter = InputState.new({ placeholder });
     this.filter.on("change", (_e, cx) => { this.recompute(); cx.notify(); });

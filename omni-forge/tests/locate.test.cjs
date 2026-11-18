@@ -166,3 +166,12 @@ test("sidePanelId: the side block's container that sits in a row", () => {
   assert.equal(sidePanelId({ id: "root", type: "row", children: [{ id: "x", type: "block", content: { mod: "files" } }] }), null);
   assert.equal(sidePanelId({ id: "root", type: "row", children: [{ id: "ci", type: "block", content: { mod: "omni-forge" } }] }), "ci");
 });
+
+test("withModIcon adds omni-forge's icon once and keeps the others", () => {
+  const { withModIcon } = load(["views/locate.js"]);
+  const added = withModIcon({ "better-changes": "mods/better-changes/icons/file.svg" });
+  assert.equal(added["omni-forge"], "mods/omni-forge/icons/ci.svg");
+  assert.equal(added["better-changes"], "mods/better-changes/icons/file.svg");
+  assert.equal(withModIcon(added), null); // already there: nothing to write
+  assert.equal(withModIcon(undefined)["omni-forge"], "mods/omni-forge/icons/ci.svg");
+});

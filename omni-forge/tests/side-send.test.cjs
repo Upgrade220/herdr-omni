@@ -62,7 +62,7 @@ test("side click: no full tab in the space opens a new one on the run, no shared
   view.repo = { kind: "github", host: "github.com", path: "o/r" };
   view.openInFull({ id: "7" });
   assert.equal(env.shared["omni-forge.open"], undefined);
-  assert.deepEqual(plain(env.runs), [["tab.new", { mod: "omni-forge", props: { view: "full", open: '["github","github.com","o/r","7"]' } }], ["layout.hide", { id: "panel-body" }]]);
+  assert.deepEqual(plain(env.runs), [["tab.new", { name: "CI", mod: "omni-forge", props: { view: "full", open: '["github","github.com","o/r","7"]' } }], ["layout.hide", { id: "panel-body" }]]);
 });
 
 test("side tick: the list polls only while the layout shows the side block; watches always run", async () => {
@@ -191,5 +191,10 @@ test("Full button: no full tab opens a new one (on Runs) and closes the panel", 
   const { view, env } = sideSetup({ panes: [term] });
   view.openFull();
   assert.equal(env.shared["omni-forge.open"], undefined);
-  assert.deepEqual(plain(env.runs), [["tab.new", { mod: "omni-forge", props: { view: "full" } }], ["layout.hide", { id: "panel-body" }]]);
+  assert.deepEqual(plain(env.runs), [["tab.new", { name: "CI", mod: "omni-forge", props: { view: "full" } }], ["layout.hide", { id: "panel-body" }]]);
+});
+
+test("the side view publishes omni-forge's tab icon for the tab bars, keeping other mods' icons", () => {
+  const { env } = sideSetup();
+  assert.equal(env.shared["mod-icons"]["omni-forge"], "mods/omni-forge/icons/ci.svg");
 });

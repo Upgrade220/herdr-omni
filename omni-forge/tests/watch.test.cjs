@@ -93,7 +93,7 @@ test("tick notifies once on finish with the brief's shape", async () => {
   assert.equal(r.errors, 0);
   assert.deepEqual(plain(t.notes), [{
     title: "o/r #12 failed", body: "Fix it", level: "error",
-    action: { name: "tab.new", args: { mod: "omni-forge", props: { view: "full", open: t.k } } },
+    action: { name: "tab.new", args: { name: "CI", mod: "omni-forge", props: { view: "full", open: t.k } } },
   }]);
   await watchTick(t.args);
   assert.equal(t.notes.length, 1);
