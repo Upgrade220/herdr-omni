@@ -1,8 +1,9 @@
 // Run detail inside the full view: header with run actions, groups -> jobs with job actions,
-// artifacts with download. `owner` is the FullView (repo, provider, watches, back()).
+// artifacts with download. `owner` is the FullView (repo, provider, watches, details, tabs,
+// openLog(), back()).
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, home, notify, focused, run as runCommand } from "herdr";
+import { exec, home, notify, focused } from "herdr";
 import { watchKey } from "../ci/watch.js";
 import { nextDelay } from "../ci/poller.js";
 import { ago, dur, size } from "./runs.js";
@@ -43,14 +44,16 @@ export class Detail {
     cx.spawn(async (cx) => {
       try {
         const data = await provider.runDetail(this.runId);
-        if (this.owner.detail !== this || this.provider !== provider) return;
+        if (this.owner.details.get(this.runId) !== this || this.provider !== provider) return;
         this.data = data;
         this.run = data.run;
+        this.owner.tabs?.setStatus(`run:${this.runId}`, data.run.status);
+        for (const g of data.groups) for (const j of g.jobs) this.owner.tabs?.setStatus(`log:${this.runId}:${j.id}`, j.status);
         this.error = null;
         this.errors = 0;
         if (WATCHABLE.has(data.run.status)) this.owner.watches.add(this.key(), data.run);
       } catch (e) {
-        if (this.owner.detail !== this) return;
+        if (this.owner.details.get(this.runId) !== this) return;
         this.error = e;
         this.errors++;
       } finally {
@@ -100,9 +103,9 @@ export class Detail {
     });
   }
 
-  openLog(job) {
-    const { kind, host, path } = this.repo;
-    runCommand("pane.split", { direction: "right", mod: "omni-forge", props: { view: "log", kind, host, path, runId: this.runId, jobId: job.id, name: job.name } });
+  // The log opens as a tab of the full view, full width.
+  openLog(job, cx) {
+    this.owner.openLog(this.runId, job, cx);
   }
 
   // The Send to agent dialog for a failed job. A new agent starts in the followed terminal's folder.
@@ -148,7 +151,7 @@ export class Detail {
       out.push({ id: `${ids}-cancel`, label: "Cancel", danger: true, onClick: (cx) => this.act(cx, `${ids}-cancel`, `Cancel ${job.name}`, () => p.cancelJob(job.id)) });
     }
     if (job.status !== "manual" && job.status !== "skipped") {
-      out.push({ id: `${ids}-log`, label: "Log", onClick: () => this.openLog(job) });
+      out.push({ id: `${ids}-log`, label: "Log", onClick: (cx) => this.openLog(job, cx) });
     }
     if (job.status === "failed") {
       out.push({ id: `${ids}-agent`, label: "Send to agent", onClick: () => this.sendToAgent(job) });

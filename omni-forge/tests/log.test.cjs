@@ -162,3 +162,35 @@ test("LogView keeps the ForgeError hint for the error note", async () => {
   assert.equal(view.error.message, "Could not check job status: Forbidden");
   assert.match(view.error.hint, /glab auth login --hostname gl\.test/);
 });
+
+test("an embedded LogView starts no timer; the owner's tick polls it while live and due", async () => {
+  const asked = [];
+  let status = "running";
+  const { LogView } = load(["ci/log.js", "views/log.js"], {
+    checking: () => false,
+    props: () => ({}),
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+    providerFor: () => ({
+      capabilities: { liveLog: true },
+      jobLog: async () => { asked.push("log"); return { text: "a\n", truncated: false, available: true }; },
+      runDetail: async () => ({ run: {}, groups: [{ name: "b", jobs: [{ id: "1", status, url: "u" }] }] }),
+    }),
+  });
+  let timers = 0;
+  const pending = [];
+  const cx = { timer: { every: () => timers++, after() {} }, notify() {}, spawn(fn) { pending.push(fn(cx)); } };
+  const view = new LogView();
+  view.initEmbedded({ kind: "gitlab", host: "gl.test", path: "g/p", runId: "5", jobId: "1", name: "j" }, cx);
+  await Promise.all(pending.splice(0));
+  assert.equal(timers, 0);
+  assert.deepEqual(asked, ["log"]);
+  view.tick(cx, view.nextAt - 1); // not due yet
+  assert.deepEqual(asked, ["log"]);
+  status = "success";
+  view.tick(cx, view.nextAt);
+  await Promise.all(pending.splice(0));
+  assert.deepEqual(asked, ["log", "log"]);
+  assert.equal(view.live, false);
+  view.tick(cx, view.nextAt + 1e9); // finished: no more polling
+  assert.deepEqual(asked, ["log", "log"]);
+});

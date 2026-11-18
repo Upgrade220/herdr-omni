@@ -1,4 +1,7 @@
-// Job log view: opens as a pane beside a terminal. props: { kind, host, path, runId, jobId, name }.
+// Job log view. props: { kind, host, path, runId, jobId, name }. Two uses:
+// - a pane of its own (props.view "log"): init() starts its own poll timer;
+// - a tab inside the full CI view: initEmbedded() starts none, and the owner calls tick() while
+//   the tab is selected, so a closed tab leaves nothing polling.
 // Fetches the log, cleans it, scrolls to the first error once, and polls while the job runs.
 // Lines render through a virtual list with a fixed row height, so a 2 MB log stays cheap.
 import { div } from "gpui-kit";
@@ -19,7 +22,25 @@ const failure = (e, prefix = "") => ({ message: prefix + String(e?.message ?? e)
 export class LogView {
   init(given, cx) {
     // Read props once: live, Herdr gives a pane copy an empty object here, so fall back to props().
-    this.props = (given && Object.keys(given).length ? given : props()) ?? {};
+    this.setup((given && Object.keys(given).length ? given : props()) ?? {});
+    if (checking()) return;
+    this.refresh(cx);
+    cx.timer.every(POLL_MS, (cx) => { if (this.live) this.refresh(cx); });
+  }
+
+  initEmbedded(given, cx) {
+    this.setup(given ?? {});
+    if (checking()) return;
+    this.refresh(cx);
+  }
+
+  // Called by the owner's tick while this log's tab is selected.
+  tick(cx, now = Date.now()) {
+    if (this.live && now >= this.nextAt) this.refresh(cx);
+  }
+
+  setup(given) {
+    this.props = given;
     this.provider = providerFor(this.props);
     this.scroll = VirtualListScrollHandle.new();
     this.log = { lines: [], firstError: null };
@@ -33,9 +54,7 @@ export class LogView {
     this.scrolled = false;
     this.lastText = null;
     this.size = null;
-    if (checking()) return;
-    this.refresh(cx);
-    cx.timer.every(POLL_MS, (cx) => { if (this.live) this.refresh(cx); });
+    this.nextAt = 0;
   }
 
   refresh(cx) {
@@ -73,6 +92,7 @@ export class LogView {
       } finally {
         this.busy = false;
         this.loaded = true;
+        this.nextAt = Date.now() + POLL_MS;
       }
       if (state().some((v, i) => v !== before[i])) cx.notify();
       // The list is first drawn on the frame after this notify; a scroll asked before then is lost.

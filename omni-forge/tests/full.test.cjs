@@ -12,13 +12,18 @@ const panes = [
 const focusOn = (pane, tab) => ({ space: "s1", tab, pane, terminal: panes.find((p) => p.pane === pane)?.terminal ?? null, cwd: panes.find((p) => p.pane === pane)?.cwd ?? null });
 
 function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes } = {}) {
-  const env = { focus, shared: { ...shared }, detects: [], opened: [], panes: paneList };
+  const env = { focus, shared: { ...shared }, detects: [], opened: [], panes: paneList, logs: [], logTicks: [], logRefreshes: [] };
   const repoOf = (cwd) => ({ kind: "github", host: "github.com", path: `o/${cwd.split("/").pop()}`, url: "" });
   class Detail {
     constructor(owner, runId) { this.runId = runId; env.opened.push(runId); }
     load() {}
   }
-  const { FullView } = load(["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/locate.js", "views/ui.js", "views/repo.js", "views/full.js"], {
+  class LogView {
+    initEmbedded(props) { this.props = props; env.logs.push(props.jobId); }
+    tick() { env.logTicks.push(this.props.jobId); }
+    refresh() { env.logRefreshes.push(this.props.jobId); }
+  }
+  const { FullView } = load(["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/locate.js", "views/ui.js", "views/repo.js", "views/tabs.js", "views/full.js"], {
     InputState: { new: () => ({ on() {}, value: () => "", set_value() {} }) },
     exec: () => {},
     focused: () => env.focus,
@@ -33,6 +38,7 @@ function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect, pa
     detectRepo: async (cwd) => { env.detects.push(cwd); return detect ? detect(cwd) : repoOf(cwd); },
     providerFor: (repo) => ({ repo, capabilities: {}, listRuns: async () => [] }),
     Detail,
+    LogView,
     WATCHABLE: new Set(["running", "pending", "manual"]),
   });
   const pending = [];
@@ -126,6 +132,7 @@ test("shared open: taken (and cleared) in the tick only while visible, never in 
   await settle();
   assert.equal(env.shared["omni-forge.open"], null);
   assert.deepEqual(env.opened, ["55"]);
+  assert.equal(view.tabs.selected, "run:55"); // lands in a run tab
   assert.equal(view.loc.cwd, "/w/repo-b"); // same repo: the location stays
   view.tick(cx);
   assert.deepEqual(env.opened, ["55"]);
@@ -182,4 +189,61 @@ test("laidOut ignores a focused tab that isn't a full tab", () => {
   env.focus = focusOn("pf", "F");
   view.laidOut();
   assert.equal(view.ownTab, "F");
+});
+
+// ---- tabs inside the view ------------------------------------------------------------
+
+const opened = (given = {}) => setup({ given: { view: "full", open: '["gitlab","gl.test","g/p","12"]', ...given }, focus: focusOn("pf", "F") });
+const job = { id: "gid://gitlab/Ci::Build/77", name: "Build", status: "failed" };
+
+test("Log opens a log tab inside the view, and opening it again reuses the tab", () => {
+  const { view, env, cx } = opened();
+  view.openLog("12", job, cx);
+  assert.equal(view.tabs.selected, `log:12:${job.id}`);
+  assert.deepEqual(env.logs, [job.id]);
+  view.tabs.select("runs");
+  view.openLog("12", job, cx);
+  assert.equal(view.tabs.selected, `log:12:${job.id}`);
+  assert.deepEqual(env.logs, [job.id]); // no second LogView
+  assert.equal(view.tabs.list.length, 3); // Runs, run:12, the log
+});
+
+test("only the selected log tab polls; closing it drops its LogView", () => {
+  const { view, env, cx } = opened();
+  view.openLog("12", job, cx);
+  view.tick(cx);
+  assert.deepEqual(env.logTicks, [job.id]);
+  view.tabs.select("run:12");
+  view.tick(cx);
+  assert.deepEqual(env.logTicks, [job.id]); // not selected: idle
+  view.closeTab(`log:12:${job.id}`, cx);
+  assert.equal(view.logs.size, 0);
+  view.tick(cx);
+  assert.deepEqual(env.logTicks, [job.id]);
+});
+
+test("Refresh on a log tab refreshes that log", () => {
+  const { view, env, cx } = opened();
+  view.openLog("12", job, cx);
+  view.refresh(cx);
+  assert.deepEqual(env.logRefreshes, [job.id]);
+});
+
+test("closing a run tab drops its Detail", () => {
+  const { view, cx } = opened();
+  assert.ok(view.details.has("12"));
+  view.closeTab("run:12", cx);
+  assert.equal(view.details.has("12"), false);
+  assert.equal(view.tabs.selected, "runs");
+});
+
+test("a repo change closes run and log tabs", async () => {
+  const { view, env, cx, settle } = opened();
+  view.openLog("12", job, cx);
+  env.shared["omni-forge.open"] = { tab: "F", key: '["github","github.com","o/other","9"]' };
+  view.tick(cx);
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(view.tabs.list.map((t) => t.id))), ["runs", "run:9"]);
+  assert.equal(view.logs.size, 0);
+  assert.deepEqual([...view.details.keys()], ["9"]);
 });
