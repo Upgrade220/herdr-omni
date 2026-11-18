@@ -6,7 +6,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { exec, home, notify, focused } from "herdr";
 import { watchKey } from "../ci/watch.js";
 import { nextDelay } from "../ci/poller.js";
-import { ago, dur, size } from "./runs.js";
+import { ago, dur, size, artifactsByJob } from "./runs.js";
 import { openSendDialog } from "./send.js";
 import { icon, pill, section, statusIcon, runPills, button, busyState, errorState } from "./ui.js";
 
@@ -153,6 +153,17 @@ export class Detail {
     if (job.status !== "manual" && job.status !== "skipped") {
       out.push({ id: `${ids}-log`, label: "Log", onClick: (cx) => this.openLog(job, cx) });
     }
+    // A job's own artifacts (GitLab): one button downloads them, so it's clear which job made them.
+    const arts = artifactsByJob(this.data?.artifacts).byJob.get(String(job.id).split("/").pop()) ?? [];
+    if (arts.length) {
+      const states = arts.map((a) => this.downloads[a.id]?.state);
+      const label = states.every((s) => s === "done") ? "Artifacts ✓" : states.includes("error") ? "Retry artifacts" : "Artifacts";
+      out.push({
+        id: `${ids}-art`, label, symbol: "package",
+        busyWhen: states.includes("busy"),
+        onClick: (cx) => arts.forEach((a) => this.download(cx, a)),
+      });
+    }
     if (job.status === "failed") {
       out.push({ id: `${ids}-agent`, label: "Send to agent", onClick: () => this.sendToAgent(job) });
     }
@@ -160,7 +171,7 @@ export class Detail {
   }
 
   buttons(t, actions) {
-    return actions.map((a) => button(t, a.id, a.label, a.onClick, { primary: a.primary, danger: a.danger, symbol: a.symbol, busy: this.acting.has(a.id) }));
+    return actions.map((a) => button(t, a.id, a.label, a.onClick, { primary: a.primary, danger: a.danger, symbol: a.symbol, busy: this.acting.has(a.id) || Boolean(a.busyWhen) }));
   }
 
   // ---- render ------------------------------------------------------------------
@@ -195,7 +206,8 @@ export class Detail {
     });
     if (!rows.length) rows.push(div().px(14).py(6).text_size(12).text_color(t.dim).child("No jobs yet."));
 
-    const artifacts = this.data.artifacts;
+    // Job artifacts sit on their job rows; only run-level ones (GitHub) are listed here.
+    const artifacts = artifactsByJob(this.data.artifacts).runLevel;
     return v_flex().flex_1().min_h(0).child(top)
       .child(v_flex().id("detail-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(12)
         .child(head)

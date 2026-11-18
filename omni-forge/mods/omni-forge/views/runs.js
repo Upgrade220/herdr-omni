@@ -55,3 +55,17 @@ export function size(bytes) {
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
   return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
+
+// Splits a run's artifacts: those a job made (GitLab) go to that job, keyed by the last segment of
+// its id so a gid and a numeric id agree; those without a job (GitHub) stay at run level.
+export function artifactsByJob(artifacts) {
+  const byJob = new Map();
+  const runLevel = [];
+  for (const a of artifacts ?? []) {
+    if (a.jobId == null) { runLevel.push(a); continue; }
+    const key = String(a.jobId).split("/").pop();
+    if (!byJob.has(key)) byJob.set(key, []);
+    byJob.get(key).push(a);
+  }
+  return { byJob, runLevel };
+}

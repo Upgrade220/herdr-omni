@@ -32,3 +32,16 @@ test("Log opens the job in the owner's log tab, never a pane split", () => {
   assert.deepEqual(env.logs, [["12", job.id]]);
   assert.deepEqual(env.commands, []);
 });
+
+test("a job with artifacts gets an Artifacts action; one without doesn't", () => {
+  const { detail } = setup();
+  detail.data = {
+    run: { id: "12", status: "failed" },
+    groups: [],
+    artifacts: [{ id: "7:artifacts.zip", name: "artifacts.zip", sizeBytes: 10, jobId: "gid://gitlab/Ci::Build/7" }],
+  };
+  const withArt = detail.jobActions({ id: "gid://gitlab/Ci::Build/7", name: "Build", status: "success" }, "j1");
+  const without = detail.jobActions({ id: "gid://gitlab/Ci::Build/8", name: "Test", status: "success" }, "j2");
+  assert.ok(withArt.some((a) => a.label === "Artifacts"));
+  assert.ok(!without.some((a) => a.label === "Artifacts"));
+});

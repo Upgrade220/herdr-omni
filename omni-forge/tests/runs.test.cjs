@@ -68,3 +68,21 @@ test("size formats bytes", () => {
   assert.equal(size(1536), "1.5 KB");
   assert.equal(size(20 * 1024 * 1024), "20 MB");
 });
+
+test("artifactsByJob: GitLab artifacts go to their job, by the last id segment", () => {
+  const { artifactsByJob } = load(["forge/model.js", "views/runs.js"]);
+  const a = { id: "7:artifacts.zip", name: "artifacts.zip", sizeBytes: 10, jobId: "gid://gitlab/Ci::Build/7" };
+  const b = { id: "8:artifacts.zip", name: "artifacts.zip", sizeBytes: 20, jobId: "gid://gitlab/Ci::Build/8" };
+  const { byJob, runLevel } = artifactsByJob([a, b]);
+  assert.equal(byJob.get("7")[0].id, "7:artifacts.zip");
+  assert.equal(byJob.get("8")[0].id, "8:artifacts.zip");
+  assert.equal(runLevel.length, 0);
+});
+
+test("artifactsByJob: GitHub artifacts (no job) stay at run level", () => {
+  const { artifactsByJob } = load(["forge/model.js", "views/runs.js"]);
+  const { byJob, runLevel } = artifactsByJob([{ id: "5:dist", name: "dist", sizeBytes: 1, jobId: null }]);
+  assert.equal(byJob.size, 0);
+  assert.equal(runLevel.length, 1);
+  assert.equal(artifactsByJob(undefined).runLevel.length, 0);
+});
