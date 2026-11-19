@@ -67,8 +67,12 @@ Markdown and images, Open in your editor, Send to an agent, better-icons.
   view) with small hooks in its tree and viewer, so munza's updates conflict only there.
 - Git on/off is a shared key (`better-files.git`, default on) so the tree and every open
   file tab follow it.
-- filetree's "Recent" tab (files Claude read or wrote) is left out: it needs Claude hooks
-  installed. Could come later.
+- **Recent** (agent-neutral, chosen): the Files header gets **Tree | Recent**. Recent lists
+  files changed on disk in the shown folder, newest first, with how long ago (`2m`), whoever
+  changed them (any agent, an editor, me). It's fed by the folder watch better-files already
+  runs, kept across restarts per folder (last 100), and skips `.git`, the folders the filter
+  skips, and files Git ignores. A file that's gone since shows struck through. Click opens it
+  like a tree row; right-click gives the same menu. Reads aren't shown (only changes).
 - The layout (`main-graph`) is edited: the Files button and right-panel Files block go; the
   sidebar gets the switcher and the stack. Backed up first.
 - Tests next to munza's (`node --test`); `herdr-app check` on both mods; credit and LICENSE
@@ -107,7 +111,7 @@ Markdown and images, Open in your editor, Send to an agent, better-icons.
 - Creating, renaming, deleting or editing files (better-files leaves that to the editor on
   purpose).
 - Moving Git or CI to the left.
-- The Recent tab.
+- Showing which files an agent read (needs agent-specific hooks).
 
 ## Left to the builder
 
