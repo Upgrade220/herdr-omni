@@ -167,3 +167,60 @@ test("clampChangesWidth: 240 at least, half the width at most, rounded", () => {
   // Before the first measure there is no upper bound.
   assert.equal(C.clampChangesWidth(900, undefined), 900);
 });
+
+test("literal pathspecs: a file named *.log is only that file for discard and stage", () => {
+  const repo = mk();
+  for (const p of ["a.log", "b.log", "*.log"]) write(repo, p, p);
+  const star = { path: "*.log", s: "A", fresh: true };
+  apply(repo, C.stageArgs(["*.log"]));
+  assert.deepEqual(C.splitChanges(status(repo)).staged.map((c) => c.path), ["*.log"]);
+  apply(repo, C.unstageArgs(["*.log"], true));
+  assert.deepEqual(C.splitChanges(status(repo)).staged, []);
+  apply(repo, C.discardPlan([star]).list);
+  assert.equal(existsSync(join(repo, "*.log")), false);
+  assert.equal(existsSync(join(repo, "a.log")), true);
+  assert.equal(existsSync(join(repo, "b.log")), true);
+});
+
+test("literal pathspecs: unstage and diff of *.log touch only that file; whole-tree forms still work", () => {
+  const repo = mk();
+  for (const p of ["a.log", "*.log"]) write(repo, p, p + "\n");
+  git(repo, ["add", "."]); git(repo, ["commit", "-qm", "logs"]);
+  for (const p of ["a.log", "*.log"]) write(repo, p, p + " changed\n");
+  git(repo, ["add", "."]);
+  apply(repo, C.unstageArgs(["*.log"], true));
+  assert.deepEqual(C.splitChanges(status(repo)).staged.map((c) => c.path), ["a.log"]);
+  const diff = git(repo, C.workDiffArgs(false, "*.log"));
+  assert.match(diff, /\*\.log changed/);
+  assert.doesNotMatch(diff, /a\.log changed/);
+  apply(repo, C.unstageAllArgs(true));
+  assert.deepEqual(C.splitChanges(status(repo)).staged, []);
+  apply(repo, C.stageAllArgs());
+  assert.equal(C.splitChanges(status(repo)).staged.length, 2);
+});
+
+test("literal pathspecs: no-HEAD unstage of *.log keeps a.log staged", () => {
+  const repo = mk(false);
+  for (const p of ["a.log", "*.log"]) write(repo, p, p);
+  git(repo, ["add", "."]);
+  apply(repo, C.unstageArgs(["*.log"], false));
+  assert.deepEqual(C.splitChanges(status(repo)).staged.map((c) => c.path), ["a.log"]);
+  apply(repo, C.unstageAllArgs(false));
+  assert.deepEqual(C.splitChanges(status(repo)).staged, []);
+});
+
+test("swapDraft: a draft stays with its repo", () => {
+  const drafts = new Map();
+  const empty = { title: "", body: "" };
+  let cur = C.swapDraft(drafts, null, "/a", empty);
+  assert.deepEqual(cur, empty);
+  cur = C.swapDraft(drafts, "/a", "/b", { title: "fix A", body: "why" });
+  assert.deepEqual(cur, empty);
+  cur = C.swapDraft(drafts, "/b", "/a", { title: "B title", body: "" });
+  assert.deepEqual(cur, { title: "fix A", body: "why" });
+  assert.equal(drafts.has("/a"), false);
+  cur = C.swapDraft(drafts, "/a", "/b", { title: "", body: "  " });
+  assert.deepEqual(cur, { title: "B title", body: "" });
+  assert.equal(drafts.has("/a"), false, "a blank draft is not kept");
+  assert.deepEqual(C.swapDraft(drafts, "/b", null, cur), empty);
+});

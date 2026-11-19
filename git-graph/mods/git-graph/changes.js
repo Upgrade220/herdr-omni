@@ -53,10 +53,12 @@ export function fileTree(changes) {
   return rows;
 }
 
-export const stageArgs = (paths) => [["add", "--", ...paths]];
+// --literal-pathspecs: a file name is never read as a glob or pathspec magic ("*.log" is that one file).
+const LIT = "--literal-pathspecs";
+export const stageArgs = (paths) => [[LIT, "add", "--", ...paths]];
 export const stageAllArgs = () => [["add", "-A"]];
-export const unstageArgs = (paths, hasHead) => [hasHead ? ["restore", "--staged", "--", ...paths] : ["rm", "--cached", "-f", "-q", "--", ...paths]];
-export const unstageAllArgs = (hasHead) => [hasHead ? ["restore", "--staged", "--", "."] : ["rm", "-r", "--cached", "-f", "-q", "--", "."]];
+export const unstageArgs = (paths, hasHead) => [[LIT, ...(hasHead ? ["restore", "--staged", "--", ...paths] : ["rm", "--cached", "-f", "-q", "--", ...paths])]];
+export const unstageAllArgs = (hasHead) => [[LIT, ...(hasHead ? ["restore", "--staged", "--", "."] : ["rm", "-r", "--cached", "-f", "-q", "--", "."])]];
 
 // -f: with --cached it only drops the index entry, even when the file was edited after staging.
 
@@ -64,7 +66,7 @@ export const unstageAllArgs = (hasHead) => [hasHead ? ["restore", "--staged", "-
 export function discardPlan(changes) {
   const tracked = changes.filter((c) => !c.fresh && c.s !== "!").map((c) => c.path);
   const fresh = changes.filter((c) => c.fresh).map((c) => c.path);
-  const list = [...(tracked.length ? [["restore", "--", ...tracked]] : []), ...(fresh.length ? [["clean", "-f", "--", ...fresh]] : [])];
+  const list = [...(tracked.length ? [[LIT, "restore", "--", ...tracked]] : []), ...(fresh.length ? [[LIT, "clean", "-f", "--", ...fresh]] : [])];
   if (!list.length) return null;
   const one = changes.length === 1 ? changes[0].path.split("/").pop() : null;
   const text = one ? (fresh.length ? `Delete untracked file ${one}?` : `Discard changes to ${one}?`)
@@ -81,8 +83,16 @@ export function commitPlan(title, body, stagedCount, conflicted = false) {
   return list;
 }
 
+// The commit fields per repo: keeps `current` (when not blank) as fromRoot's draft and gives toRoot's, taking it out of `drafts`.
+export function swapDraft(drafts, fromRoot, toRoot, current) {
+  if (fromRoot != null && (current.title.trim() || current.body.trim())) drafts.set(fromRoot, current);
+  const next = (toRoot != null && drafts.get(toRoot)) || { title: "", body: "" };
+  drafts.delete(toRoot);
+  return next;
+}
+
 // A working-tree diff of one path: the index against HEAD (staged) or the files against the index.
-export const workDiffArgs = (staged, path) => ["diff", ...(staged ? ["--cached"] : []), "--no-color", "--no-ext-diff", "--no-textconv", "--", path];
+export const workDiffArgs = (staged, path) => [LIT, "diff", ...(staged ? ["--cached"] : []), "--no-color", "--no-ext-diff", "--no-textconv", "--", path];
 
 // fileTree rows without those under a collapsed dir (a Set of dir paths).
 export function visibleRows(rows, collapsed) {

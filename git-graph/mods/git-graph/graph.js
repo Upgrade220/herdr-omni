@@ -1015,6 +1015,8 @@ export class Graph {
       .on_key_down((e, cx) => {
         if (e.key === "escape" && this.branchPicker.escape()) { cx.stop_propagation(); cx.notify(); return; }
         if (e.key === "escape" && (full || changesTab) && this.changes.escape()) { cx.stop_propagation(); cx.notify(); return; }
+        // The side Changes tab hides the graph: Esc never reaches its selection or the Manygit list.
+        if (changesTab) return;
         if (e.key !== "escape" || !(this.selected || this.opened)) return;
         // Esc closes the dropdown, a diff, then the details, then goes back to the Manygit list.
         if (this.picking) this.picking = false; else if (this.diff) this.diff = null; else if (this.selected) { this.selected = null; this.details = null; } else this.back(cx);

@@ -7,7 +7,7 @@ import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, Scrollbar, 
 import { exec, readTextFile, shared, setShared } from "herdr";
 import { READ, diffRows, gitError } from "./git.js";
 import { splitChanges, changeCount, fileTree, visibleRows, stageArgs, stageAllArgs, unstageArgs, unstageAllArgs,
-  discardPlan, commitPlan, commitLabel, workDiffArgs, diffWidth } from "./changes.js";
+  discardPlan, commitPlan, commitLabel, workDiffArgs, diffWidth, swapDraft } from "./changes.js";
 import { followFileIcons, fileIcon, isLight } from "./file-icons.js";
 import { icon } from "./menu.js";
 import { VIEW_KEY } from "./place.js";
@@ -27,7 +27,7 @@ export class ChangesView {
     this.commitOpen = localStorage.getItem("commitOpen") === "true";
     this.collapsed = new Set(); this.hot = null; this.asking = null; this.error = null; this.busy = false; this.diff = null;
     this.diffId = `changes-diff-${Math.random().toString(36).slice(2)}`;
-    this.title = "";
+    this.title = ""; this.drafts = new Map();
     this.input = InputState.new({ placeholder: "Commit title · Enter to commit" });
     this.body = TextareaState.new({ placeholder: "Description (optional)" });
     this.body.set_auto_grow(2, 6);
@@ -53,10 +53,12 @@ export class ChangesView {
     else if (d && cx) this.loadDiff(d, cx);
   }
 
-  // Another folder in the graph: start from what it holds now.
+  // Another folder in the graph: start from what it holds now, with that repo's commit draft.
   sync() {
     const o = this.owner;
     if (this.root === o.root) return;
+    const draft = swapDraft(this.drafts, this.root, o.root, { title: this.input.value(), body: this.body.value() });
+    this.title = draft.title; this.input.set_value(draft.title); this.body.set_value(draft.body);
     this.root = o.root; this.diff = null; this.asking = null; this.error = null; this.collapsed.clear();
     this.update(o.files ?? [], Boolean(o.head));
   }
@@ -106,7 +108,9 @@ export class ChangesView {
   commit(cx) {
     const list = commitPlan(this.title, this.body.value(), this.staged.length, this.conflicted());
     if (!list || this.busy || !(this.staged.length + this.work.length)) return;
-    this.run(list, cx, () => { this.title = ""; this.input.set_value(""); this.body.set_value(""); });
+    const root = this.root;
+    // Done after a switch to another repo: the committed draft is the one kept for `root`.
+    this.run(list, cx, () => { if (this.root !== root) { this.drafts.delete(root); return; } this.title = ""; this.input.set_value(""); this.body.set_value(""); });
   }
 
   conflicted() { return this.work.some((f) => f.s === "!"); }
