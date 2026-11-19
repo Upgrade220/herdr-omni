@@ -5,15 +5,16 @@ import { Menu } from "./menu.js";
 import { Dialog } from "./dialog.js";
 import { Update } from "./update.js";
 import { Settings } from "./settings.js";
+import { DiffView } from "./diff-view.js";
 
 // One mod, several roles: the graph (a panel or a pane), and over the window the
 // right-click menu, the dialogs its actions ask first, the update window and
 // the Manygit settings (props.role). The graph is the side panel's narrow view, or the
-// full Git tab (props.view "full").
+// full Git tab (props.view "full"); props.view "diff" is the Diff tab, one file's diff.
 export default class GitGraph extends View {
   init(_props, cx) {
     const role = props()?.role;
-    this.part = role === "menu" ? new Menu() : role === "dialog" ? new Dialog() : role === "update" ? new Update() : role === "settings" ? new Settings() : new Graph(props()?.view === "full" ? "full" : "side");
+    this.part = role === "menu" ? new Menu() : role === "dialog" ? new Dialog() : role === "update" ? new Update() : role === "settings" ? new Settings() : props()?.view === "diff" ? new DiffView() : new Graph(props()?.view === "full" ? "full" : "side");
     this.part.init(cx);
   }
 

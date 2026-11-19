@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { diffRows, splitDiffRows, conflictRows } from "../mods/git-graph/diff-rows.js";
 import { languageOf, tokenizeLine } from "../mods/git-graph/syntax.js";
-import { diffArgs, untrackedRows, rowsFromDiff } from "../mods/git-graph/diff-target.js";
+import { diffArgs, untrackedRows, rowsFromDiff, scopeLabel, statusOf, statOf, capRows, DIFF_LINES } from "../mods/git-graph/diff-target.js";
 
 const env = { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t", GIT_CONFIG_GLOBAL: "/dev/null" };
 const git = (cwd, args) => { const r = spawnSync("git", args, { cwd, env, encoding: "utf8" }); assert.equal(r.status, 0, `${args.join(" ")}: ${r.stderr}`); return r.stdout; };
@@ -78,11 +78,12 @@ test("syntax: language by name and a tokenised line that rejoins to its text", (
 
 test("diffArgs shapes, with --literal-pathspecs first", () => {
   const t = (source, extra) => ({ root: "/r", on: null, path: "p", source, ...extra });
-  assert.deepEqual(diffArgs(t("unstaged"), false), ["--literal-pathspecs", "diff", "--", "p"]);
-  assert.deepEqual(diffArgs(t("unstaged"), true), ["--literal-pathspecs", "diff", "--unified=1000000", "--", "p"]);
-  assert.deepEqual(diffArgs(t("staged"), false), ["--literal-pathspecs", "diff", "--cached", "--", "p"]);
+  const plain = ["--no-color", "--no-ext-diff", "--no-textconv"];
+  assert.deepEqual(diffArgs(t("unstaged"), false), ["--literal-pathspecs", "diff", ...plain, "--", "p"]);
+  assert.deepEqual(diffArgs(t("unstaged"), true), ["--literal-pathspecs", "diff", ...plain, "--unified=1000000", "--", "p"]);
+  assert.deepEqual(diffArgs(t("staged"), false), ["--literal-pathspecs", "diff", "--cached", ...plain, "--", "p"]);
   assert.deepEqual(diffArgs(t("commit", { commit: { hash: "abc", short: "a", subject: "s" } }), true),
-    ["--literal-pathspecs", "show", "--diff-merges=first-parent", "--format=", "--unified=1000000", "abc", "--", "p"]);
+    ["--literal-pathspecs", "show", "--diff-merges=first-parent", "--format=", ...plain, "--unified=1000000", "abc", "--", "p"]);
   assert.equal(diffArgs({ source: "untracked" }), null);
   assert.equal(diffArgs({ source: "conflict" }), null);
 });
@@ -162,4 +163,52 @@ test("full=true on a 50-line file with one change gives every line", () => {
 
 test("rowsFromDiff: empty is no changes", () => {
   assert.deepEqual(rowsFromDiff(""), { message: "No changes in this file" });
+});
+
+test("a repo that colours every diff still gives plain rows", () => {
+  const r = repo();
+  write(r, "f.txt", "one\n"); const h = commit(r);
+  git(r, ["config", "color.ui", "always"]);
+  write(r, "f.txt", "two\n");
+  assert.equal(kinds(show(r, { source: "unstaged", path: "f.txt" }).rows), "@-+");
+  assert.equal(kinds(show(r, { source: "commit", path: "f.txt", commit: { hash: h } }).rows), "@+");
+});
+
+// ---- the Diff tab's header and line cap ----
+
+test("scopeLabel names what is compared", () => {
+  for (const s of ["unstaged", "staged", "untracked", "conflict"]) assert.equal(scopeLabel({ source: s, path: "p" }), s);
+  assert.equal(scopeLabel({ source: "commit", path: "p", commit: { hash: "abcdef1234", short: "abcdef1", subject: "Fix login" } }), "commit abcdef1 Fix login");
+  assert.equal(scopeLabel({ source: "commit", path: "p", commit: { hash: "abcdef1234" } }), "commit abcdef1");
+  assert.equal(scopeLabel(null), "");
+});
+
+test("statusOf: U untracked, ! conflict, A and D from git's header, else M", () => {
+  assert.equal(statusOf({ source: "untracked" }, ""), "U");
+  assert.equal(statusOf({ source: "conflict" }, ""), "!");
+  const r = repo();
+  write(r, "gone.txt", "a\n"); write(r, "kept.txt", "a\n"); commit(r);
+  git(r, ["rm", "-q", "gone.txt"]); write(r, "new.txt", "n\n"); git(r, ["add", "new.txt"]); write(r, "kept.txt", "b\n");
+  const out = (source, path) => git(r, diffArgs({ source, path }));
+  assert.equal(statusOf({ source: "staged" }, out("staged", "gone.txt")), "D");
+  assert.equal(statusOf({ source: "staged" }, out("staged", "new.txt")), "A");
+  assert.equal(statusOf({ source: "unstaged" }, out("unstaged", "kept.txt")), "M");
+});
+
+test("statOf counts added and removed rows", () => {
+  assert.deepEqual(statOf(diffRows(["@@ -1,3 +1,2 @@", " a", "-b", "-c", "+d"])), { add: 1, del: 2 });
+  assert.deepEqual(statOf([]), { add: 0, del: 0 });
+});
+
+test("capRows keeps the first DIFF_LINES rows and shortens long lines", () => {
+  const many = Array.from({ length: DIFF_LINES + 5 }, (_, i) => ({ kind: "+", next: i + 1, text: "x" }));
+  const capped = capRows(many);
+  assert.equal(capped.rows.length, DIFF_LINES);
+  assert.equal(capped.truncated, true);
+  const long = capRows([{ kind: " ", old: 1, next: 1, text: "y".repeat(5000) }]);
+  assert.equal(long.truncated, true);
+  assert.equal(long.rows[0].text, "y".repeat(4000) + "…");
+  assert.equal(long.rows[0].old, 1);
+  const few = [{ kind: "+", next: 1, text: "z" }];
+  assert.deepEqual(capRows(few), { rows: few, truncated: false });
 });
