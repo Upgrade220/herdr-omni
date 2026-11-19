@@ -109,3 +109,9 @@ test("pendingTarget: only a newer entry for that space", () => {
   assert.equal(pendingTarget(open, "s2", 0), null);
   assert.equal(pendingTarget(null, "s1", 0), null);
 });
+
+test("gitTabs leaves out excluded tabs (the Diff tab)", () => {
+  assert.deepEqual(gitTabs(panes, spaces, "s1", ["G"]), []);
+  assert.deepEqual(gitTabs(panes, spaces, "s2", ["G"]), ["H"]);
+  assert.deepEqual(gitTabs(panes, spaces, "s2", undefined), ["H"]);
+});

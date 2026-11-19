@@ -49,8 +49,9 @@ export function pickLoc(snap, last) {
   return terminalLoc(snap) ?? (last?.cwd ? loc(last.cwd, last.on) : null) ?? fallbackLoc(snap);
 }
 
-// The space's tabs holding only git-graph panes (a tab with a terminal beside it is not one), in tab order.
-export function gitTabs(panes, spaces, spaceId) {
+// The space's tabs holding only git-graph panes (a tab with a terminal beside it is not one), in tab order,
+// without the ids in `exclude` (the Diff tabs, which hold a git-graph pane too).
+export function gitTabs(panes, spaces, spaceId, exclude = []) {
   const byTab = new Map();
   for (const p of panes ?? []) {
     const e = byTab.get(p.tab) ?? { mod: 0, other: 0 };
@@ -58,7 +59,8 @@ export function gitTabs(panes, spaces, spaceId) {
     else e.other++;
     byTab.set(p.tab, e);
   }
-  const only = new Set([...byTab].filter(([, e]) => e.mod > 0 && e.other === 0).map(([id]) => id));
+  const skip = new Set(exclude ?? []);
+  const only = new Set([...byTab].filter(([id, e]) => e.mod > 0 && e.other === 0 && !skip.has(id)).map(([id]) => id));
   const tabs = (spaces ?? []).find((s) => s.id === spaceId)?.tabs ?? [];
   return tabs.map((t) => t.id).filter((id) => only.has(id));
 }

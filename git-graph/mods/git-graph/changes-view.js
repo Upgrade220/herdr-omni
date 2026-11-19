@@ -1,18 +1,19 @@
 // The Changes tab: staged and unstaged files (as a list or a tree), stage, unstage and
-// discard (after a confirm bar), a folded commit box, and a file's diff in place of the list.
+// discard (after a confirm bar), and a folded commit box. A file opens in the space's Diff tab.
 // The graph owns it: it feeds each status read through update() and draws render() under its header.
 // Ported from git-panel (https://github.com/LaiqianDS/herdr-mods, Apache-2.0), itself from Herdr's shipped changes mod.
 import { div, svg, image } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, Scrollbar, v_virtual_list } from "gpui-base";
-import { exec, readTextFile, shared, setShared } from "herdr";
-import { READ, diffRows, gitError } from "./git.js";
+import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
+import { exec, shared, setShared } from "herdr";
+import { gitError } from "./git.js";
 import { splitChanges, changeCount, fileTree, visibleRows, stageArgs, stageAllArgs, unstageArgs, unstageAllArgs,
-  discardPlan, commitPlan, commitLabel, workDiffArgs, diffWidth, swapDraft } from "./changes.js";
+  discardPlan, commitPlan, commitLabel, swapDraft, rowSource } from "./changes.js";
+import { openDiff } from "./diff-open.js";
 import { followFileIcons, fileIcon, isLight } from "./file-icons.js";
 import { icon } from "./menu.js";
 import { VIEW_KEY } from "./place.js";
 
-const DIFF_ROW = 20, MAX_ROWS = 1000;
+const MAX_ROWS = 1000;
 // The side tab strip's height (its border inside it): the graph counts it above its list.
 export const TAB_H = 34;
 const markColor = (t, s) => (s === "A" ? t.ansi2 : s === "D" || s === "!" ? t.ansi1 : t.ansi3);
@@ -25,8 +26,7 @@ export class ChangesView {
     this.root = null; this.files = []; this.hasHead = false; this.staged = []; this.work = [];
     this.tree = localStorage.getItem("tree") === "true";
     this.commitOpen = localStorage.getItem("commitOpen") === "true";
-    this.collapsed = new Set(); this.hot = null; this.asking = null; this.error = null; this.busy = false; this.diff = null;
-    this.diffId = `changes-diff-${Math.random().toString(36).slice(2)}`;
+    this.collapsed = new Set(); this.hot = null; this.asking = null; this.error = null; this.busy = false;
     this.title = ""; this.drafts = new Map();
     this.input = InputState.new({ placeholder: "Commit title · Enter to commit" });
     this.body = TextareaState.new({ placeholder: "Description (optional)" });
@@ -44,13 +44,10 @@ export class ChangesView {
     followFileIcons(this, cx);
   }
 
-  // A status read. cx (optional) reloads an open diff, since an edit may not change the status.
-  update(files, hasHead, cx) {
+  // A status read.
+  update(files, hasHead) {
     this.files = files; this.hasHead = hasHead;
     ({ staged: this.staged, work: this.work } = splitChanges(files));
-    const d = this.diff;
-    if (d && !(d.kind === "staged" ? this.staged : this.work).some((f) => f.path === d.path)) this.diff = null;
-    else if (d && cx) this.loadDiff(d, cx);
   }
 
   // Another folder in the graph: start from what it holds now, with that repo's commit draft.
@@ -59,17 +56,16 @@ export class ChangesView {
     if (this.root === o.root) return;
     const draft = swapDraft(this.drafts, this.root, o.root, { title: this.input.value(), body: this.body.value() });
     this.title = draft.title; this.input.set_value(draft.title); this.body.set_value(draft.body);
-    this.root = o.root; this.diff = null; this.asking = null; this.error = null; this.collapsed.clear();
+    this.root = o.root; this.asking = null; this.error = null; this.collapsed.clear();
     this.update(o.files ?? [], Boolean(o.head));
   }
 
   count() { this.sync(); return changeCount(this.files); }
   view() { return shared(VIEW_KEY) === "changes" ? "changes" : "graph"; }
 
-  // Esc: the confirm bar, then the diff, then the commit fields. False when there was nothing to close.
+  // Esc: the confirm bar, then the commit fields. False when there was nothing to close.
   escape() {
     if (this.asking) { this.asking = null; return true; }
-    if (this.diff) { this.diff = null; return true; }
     if (this.typingTitle || this.typingBody) { this.owner.handle.focus(); return true; }
     return false;
   }
@@ -127,34 +123,8 @@ export class ChangesView {
     cx.notify();
   }
 
-  openDiff(kind, f, cx) {
-    this.diff = { kind, path: f.path, fresh: kind === "work" && Boolean(f.fresh), rows: null, width: 300 };
-    this.owner.handle.focus();
-    this.loadDiff(this.diff, cx);
-    cx.notify();
-  }
-
-  // Staged: the index against HEAD; unstaged: the files against the index; untracked: the file itself.
-  loadDiff(d, cx) {
-    const root = this.root, on = this.owner.on;
-    cx.spawn(async (cx) => {
-      let rows, width;
-      try {
-        if (d.fresh) {
-          const text = await readTextFile(`${root}/${d.path}`, { on }).catch(() => null);
-          rows = text === null || text.includes("\0") ? [{ kind: "", text: "Binary or unreadable file" }]
-            : diffRows(`@@ -0,0 +1 @@\n${text.slice(0, 400000).split("\n").slice(0, 3000).map((l) => `+${l}`).join("\n")}`);
-        } else {
-          const r = await exec("git", [...READ, ...workDiffArgs(d.kind === "staged", d.path)], { cwd: root, on });
-          if (r.code !== 0) throw new Error(gitError(r));
-          rows = diffRows(r.stdout) ?? [{ kind: "", text: "Binary file changed or no text changes" }];
-        }
-        width = diffWidth(rows);
-      } catch (e) { rows = [{ kind: "", text: `Can't show this diff: ${e?.message ?? e}` }]; width = 300; }
-      if (this.diff !== d) return;
-      d.rows = rows; d.width = width;
-      cx.notify();
-    });
+  show(kind, f) {
+    if (this.root) openDiff({ root: this.root, on: this.owner.on ?? null, path: f.path, source: rowSource(kind, f) });
   }
 
   // ---- drawing
@@ -198,7 +168,7 @@ export class ChangesView {
     const shown = this.hot === id && !this.busy, pic = this.picture(f.path, t, {});
     const row = h_flex().id(`row-${id}`).h(26).flex_none().pl(8 + depth * 14).pr(4).gap(4).items_center().rounded(6)
       .hover((s) => s.bg(t.hover)).on_hover((on, cx) => this.hover(id, on, cx))
-      .child(h_flex().id(`file-${id}`).flex_1().min_w(0).h_full().gap(6).items_center().cursor_pointer().on_click((_e, cx) => this.openDiff(kind, f, cx))
+      .child(h_flex().id(`file-${id}`).flex_1().min_w(0).h_full().gap(6).items_center().cursor_pointer().on_click(() => this.show(kind, f))
         .when(Boolean(pic), (e) => e.child(pic))
         .child(div().min_w(0).truncate().text_color(markColor(t, f.s)).when(f.s === "D", (e) => e.line_through()).child(name))
         .when(flat && parts.length > 0, (e) => e.child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(parts.join("/")))));
@@ -270,41 +240,17 @@ export class ChangesView {
       .children(this.fileRows(this.work, "work", t, clean ? "Working tree clean" : "No unstaged changes"));
   }
 
-  diffRow({ kind, number, text }, t) {
-    if (kind === "@") return div().w_full().px(12).h(DIFF_ROW).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
-    return h_flex().w_full().h(DIFF_ROW).flex_none().gap(10).when(kind === "+", (e) => e.bg(t.ansi2 + "18")).when(kind === "-", (e) => e.bg(t.ansi1 + "18"))
-      .child(div().w(34).flex_none().text_right().text_color(t.dim).child(number === undefined ? "" : String(number)))
-      .child(div().flex_1().min_w(0).truncate().child(text));
-  }
-
-  diffPane(t, mono) {
-    const d = this.diff, rows = d.rows;
-    return v_flex().flex_1().min_h(0)
-      .child(h_flex().h(32).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border).text_size(11.5)
-        .child(div().id("changes-diff-back").flex_none().px(6).py(1).rounded(4).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .on_click((_e, cx) => { this.diff = null; cx.notify(); }).child("← Changes"))
-        .child(div().flex_1().min_w(0).truncate().font_family(mono).text_color(t.foreground).child(d.path))
-        .child(div().flex_none().text_color(t.dim).child(d.kind === "staged" ? "Staged" : d.fresh ? "Untracked" : "Unstaged")))
-      .child(div().flex_1().min_h(0).relative().font_family(mono).text_size(11)
-        .when(!rows, (e) => e.child(div().p(12).text_color(t.dim).child("Loading diff…")))
-        .when(Boolean(rows), (e) => e.child(div().id(`${this.diffId}-x`).size_full().overflow_x_scrollbar()
-            .child(div().w_full().min_w(d.width).h_full().child(v_virtual_list(this.diffId, rows.length, DIFF_ROW, (i) => String(i),
-              (range) => rows.slice(range.start, range.end).map((r) => this.diffRow(r, t))).size_full())))
-          .child(Scrollbar.vertical(this.diffId).viewport_from_layout().absolute().inset_0())));
-  }
-
   notice(text, t) {
     return v_flex().flex_1().min_h(0).items_center().justify_center().px(28).pb(40)
       .child(div().max_w(280).text_center().text_size(12).text_color(t.muted).child(text));
   }
 
-  render(t, mono) {
+  render(t) {
     this.sync();
     const o = this.owner;
     if (o.state === "workspace" || !o.root) return this.notice("Open a repository to see its changes", t);
     return v_flex().flex_1().min_h(0)
-      .when(Boolean(this.diff), (e) => e.child(this.diffPane(t, mono)))
-      .when(!this.diff, (e) => e.child(this.commitBox(t)).child(this.lists(t)))
+      .child(this.commitBox(t)).child(this.lists(t))
       .when(Boolean(this.asking), (e) => e.child(h_flex().flex_none().pl(10).pr(6).py(6).gap(6).items_center().bg(t.ansi1 + "14").border_t(1).border_color(t.border)
         .child(div().flex_1().min_w(0).text_size(12).text_color(t.foreground).child(this.asking?.text ?? ""))
         .child(div().id("changes-ask-no").h(26).px(10).flex().items_center().rounded(6).cursor_pointer().text_size(12).hover((s) => s.bg(t.hover))

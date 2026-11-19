@@ -3,16 +3,17 @@
 // a pane. Labels take double-clicks (checkout) and right-clicks (menus).
 import { div, svg, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, layout, exec, watchFolder, readTextFile, theme, settings, props, shared, setShared, openOverlay, home, notify, knownAgents, updates, run as runCommand } from "herdr";
+import { spaces, panes, focused, layout, exec, watchFolder, theme, settings, props, shared, setShared, openOverlay, home, notify, knownAgents, updates, run as runCommand } from "herdr";
 import { layoutLanes } from "./lanes.js";
 import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, parseLog, parseStatus, withUncommitted, labelsOf, hitLabel,
-  menuFor, menuHeight, fileArgs, joinFiles, diffArgs, diffRows } from "./git.js";
+  menuFor, menuHeight, fileArgs, joinFiles } from "./git.js";
 import { perform, openDialog, showChanges } from "./act.js";
 import { icon } from "./menu.js";
 import { available, check, openUpdate, newer } from "./update.js";
 import { ChangesView, TAB_H } from "./changes-view.js";
-import { CHANGES_W, clampChangesWidth } from "./changes.js";
-import { MOD, TAB_NAME, LAST_LOC, pickLoc, lastLocUpdate, gitTabs, sidePanelId, withModIcon } from "./place.js";
+import { CHANGES_W, clampChangesWidth, uncommittedSource } from "./changes.js";
+import { MOD, TAB_NAME, LAST_LOC, DIFF_TABS, pickLoc, lastLocUpdate, gitTabs, sidePanelId, withModIcon } from "./place.js";
+import { openDiff } from "./diff-open.js";
 import { BranchPicker } from "./branch-picker.js";
 import { depthOf, unsearched, findArgs, parseFound, REPO_STATUS, LATEST_TAG, FETCH, REMOTES, fetchable, parseRepoStatus, parseRemotes, webUrl, syncOf } from "./repos.js";
 
@@ -38,7 +39,7 @@ function location(folder) {
   return pickLoc(snap(), shared(LAST_LOC)) ?? { cwd: null, on: null };
 }
 
-const PAGE = 300, ROW = 24, LANE = 12, PAD = 6, DIFF_ROW = 20;
+const PAGE = 300, ROW = 24, LANE = 12, PAD = 6;
 // Herdr 0.1.12 zooms a list itself ("Lists in mods follow the zoom"): its row
 // heights and the lines painted in its rows are layout units there, where before
 // they were screen pixels. Asked once: the version doesn't change while running.
@@ -96,7 +97,7 @@ const folderState = () => ({
   workspace: null, statuses: new Map(), opened: null, skipped: false,
   base: [], commits: [], rows: [], lanes: 1, labels: new Map(), index: new Map(), hasMore: false, limit: PAGE, files: [], ctx: null,
   head: null, current: null, branches: [], remoteNames: [], signature: null, scope: null, moreAsked: null,
-  selected: null, details: null, diff: null,
+  selected: null, details: null,
 });
 
 // Everything the table shows for a folder, in one round of git calls: each
@@ -153,7 +154,6 @@ export class Graph {
     this.folder = props()?.folder ?? null;
     // A scrollbar finds its list by name: each copy (panel, pane) needs its own.
     this.listId = `graph-rows-${Math.random().toString(36).slice(2)}`;
-    this.diffId = `${this.listId}-diff`;
     this.all = true; this.remotes = true; this.wide = false; this.graphMax = 160; this.scale = null;
     this.watchToken = 0; this.seenChange = shared("git-graph.changed");
     this.cols = withDefaults(); this.drag = null;
@@ -194,10 +194,11 @@ export class Graph {
     if (this.key() !== this.context) { this.refresh(cx); cx.notify(); }
   }
 
-  // ⤢ Full: the space's Git tab (the focused one when it is one, else the first), or a new one; then the side panel closes.
+  // ⤢ Full: the space's Git tab (the focused one when it is one, else the first; never a Diff tab), or a new one;
+  // then the side panel closes.
   showFull() {
     const f = focused();
-    const tabs = gitTabs(panes(), spaces(), f?.space);
+    const tabs = gitTabs(panes(), spaces(), f?.space, Object.values(shared(DIFF_TABS) ?? {}));
     const tab = tabs.includes(f?.tab) ? f.tab : tabs[0];
     if (tab) runCommand("tab.select", { id: tab });
     else runCommand("tab.new", { name: TAB_NAME, mod: MOD, props: { view: "full" } });
@@ -277,7 +278,7 @@ export class Graph {
           }
           if (!opened) this.workspace = null;
           if (!on) this.watch(read.root, context, cx);
-          this.changes.update(read.files, Boolean(read.head), cx);
+          this.changes.update(read.files, Boolean(read.head));
           // A second look that finds nothing new leaves the table as it is.
           const shown = this.state === "ready" || this.state === "empty";
           if (shown && read.signature === this.signature && read.scope === this.scope && sameFiles(read.files, this.files)) return;
@@ -286,7 +287,7 @@ export class Graph {
           const status = await exec("git", [...READ, ...STATUS], { cwd: this.root, on: this.on });
           if (stale()) return;
           const files = status.code === 0 ? parseStatus(status.stdout) : [];
-          this.changes.update(files, Boolean(this.head), cx);
+          this.changes.update(files, Boolean(this.head));
           if (sameFiles(files, this.files)) return;
           this.files = files;
         }
@@ -417,7 +418,7 @@ export class Graph {
     this.index = new Map(commits.map((c, i) => [c.hash, i]));
     this.ctx = { root: this.root, on: this.on, current: this.current, head: this.head, branches: this.branches, remotes: this.remoteNames };
     this.state = commits.length ? "ready" : "empty"; this.error = null;
-    if (this.selected && !this.index.has(this.selected)) { this.selected = null; this.details = null; this.diff = null; }
+    if (this.selected && !this.index.has(this.selected)) { this.selected = null; this.details = null; }
   }
 
   // Ref moves reload the history; other edits only the uncommitted row, at most every 1.5 s.
@@ -530,7 +531,7 @@ export class Graph {
 
   saveColumns() { this.seenCols = JSON.stringify(this.cols); setShared("git-graph.columns", this.cols); }
 
-  // The details strip's height (it holds the diff too): a dragged height, else what the list leaves.
+  // The details strip's height: a dragged height, else what the list leaves.
   clampDetail(h) {
     const room = Math.max(DETAIL_MIN, (this.height ?? 900) - this.chromeH() - DETAIL_ROWS * this.rowH());
     return Math.round(Math.max(DETAIL_MIN, Math.min(room, h)));
@@ -604,8 +605,8 @@ export class Graph {
   }
 
   pick(commit, cx) {
-    if (this.selected === commit.hash) { this.selected = null; this.details = null; this.diff = null; cx.notify(); return; }
-    this.selected = commit.hash; this.details = null; this.diff = null;
+    if (this.selected === commit.hash) { this.selected = null; this.details = null; cx.notify(); return; }
+    this.selected = commit.hash; this.details = null;
     this.loadDetails(commit, cx);
     this.handle.focus();
     cx.notify();
@@ -637,28 +638,13 @@ export class Graph {
     });
   }
 
-  openDiff(commit, file, cx) {
-    this.diff = { path: file.path, rows: null, width: 300 };
-    const hash = commit.hash;
-    cx.spawn(async (cx) => {
-      let rows;
-      try {
-        if (commit.uncommitted && file.untracked) {
-          const text = await readTextFile(`${this.root}/${file.path}`, { on: this.on }).catch(() => null);
-          rows = text === null || text.includes("\0") ? [{ kind: "", text: "Binary or unreadable file" }]
-            : diffRows(`@@ -0,0 +1 @@\n${text.slice(0, 400000).split("\n").slice(0, 3000).map((l) => `+${l}`).join("\n")}`);
-        } else {
-          const r = await exec("git", [...READ, ...diffArgs(commit, file.path)], { cwd: this.root, on: this.on });
-          if (r.code !== 0) throw new Error(r.stderr.trim());
-          rows = diffRows(r.stdout) ?? [{ kind: "", text: file.binary ? "Binary file changed" : "No text changes" }];
-        }
-      } catch (e) { rows = [{ kind: "", text: `Can't show this diff: ${e?.message ?? e}` }]; }
-      if (this.selected === hash && this.diff?.path === file.path) {
-        this.diff = { path: file.path, rows, width: Math.max(300, ...rows.map((r) => r.text.length * 6.6 + 60)) };
-      }
-      cx.notify();
-    });
-    cx.notify();
+  // A file of the details strip, in the space's Diff tab: an Uncommitted file on the side its status names.
+  showDiff(commit, file) {
+    if (!this.root) return;
+    const at = { root: this.root, on: this.on ?? null, path: file.path };
+    if (!commit.uncommitted) { openDiff({ ...at, source: "commit", commit: { hash: commit.hash, short: commit.hash.slice(0, 8), subject: commit.subject } }); return; }
+    const entry = this.files.find((f) => f.path === file.path);
+    if (entry) openDiff({ ...at, source: uncommittedSource(entry) });
   }
 
   // ---- drawing
@@ -912,21 +898,7 @@ export class Graph {
       .hover((s) => s.bg(t.accent));
     const top = h_flex().h(32).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border).text_size(11.5);
     const close = div().id("graph-details-close").px(6).py(1).rounded(4).text_color(t.dim).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .on_click((_e, cx) => { this.selected = null; this.details = null; this.diff = null; cx.notify(); }).child("×");
-    if (this.diff) {
-      const rows = this.diff.rows;
-      return v_flex().flex_none().h(this.detailHeight())
-        .child(grip)
-        .child(top.child(div().id("graph-diff-back").px(6).py(1).rounded(4).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
-            .on_click((_e, cx) => { this.diff = null; cx.notify(); }).child("← Files"))
-          .child(div().flex_1().min_w(0).truncate().font_family(mono).text_color(t.foreground).child(this.diff.path)).child(close))
-        .child(div().flex_1().min_h(0).relative().font_family(mono).text_size(11)
-          .when(!rows, (e) => e.child(div().p(12).text_color(t.dim).child("Loading diff…")))
-          .when(Boolean(rows), (e) => e.child(div().id(`${this.diffId}-x`).size_full().overflow_x_scrollbar()
-              .child(div().w_full().min_w(this.diff.width).h_full().child(v_virtual_list(this.diffId, rows.length, DIFF_ROW, (i) => String(i),
-                (range) => rows.slice(range.start, range.end).map((r) => this.diffRow(r, t))).size_full())))
-            .child(Scrollbar.vertical(this.diffId).viewport_from_layout().absolute().inset_0())));
-    }
+      .on_click((_e, cx) => { this.selected = null; this.details = null; cx.notify(); }).child("×");
     const title = commit.uncommitted ? "Uncommitted changes" : `Commit ${commit.hash.slice(0, 8)}`;
     const body = v_flex().id("graph-details").flex_1().min_h(0).overflow_y_scrollbar().px(14).py(10).gap(4);
     const pane = (content) => v_flex().flex_none().h(this.detailHeight())
@@ -958,20 +930,13 @@ export class Graph {
         const parts = f.path.split("/"), name = parts.pop();
         const sc = f.status === "A" ? t.ansi2 : f.status === "D" || f.status === "U" ? t.ansi1 : t.blocked;
         return h_flex().id(`gf-${i}`).h(24).flex_none().px(6).gap(8).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => this.openDiff(commit, f, cx))
+          .on_click(() => this.showDiff(commit, f))
           .child(div().w(12).flex_none().text_size(11).text_color(sc).child(f.status))
           .child(h_flex().flex_1().min_w(0).child(div().text_color(t.dim).truncate().child(parts.length ? parts.join("/") + "/" : "")).child(div().min_w(0).truncate().child(name)))
           .when(f.add > 0, (e) => e.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`)))
           .when(f.del > 0, (e) => e.child(div().text_size(11).text_color(t.ansi1).child(`−${f.del}`)));
       }))
       .when(d.more > 0, (e) => e.child(div().text_size(11).text_color(t.dim).child(`and ${d.more} more`))));
-  }
-
-  diffRow({ kind, number, text }, t) {
-    if (kind === "@") return div().w_full().px(12).h(DIFF_ROW).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
-    return h_flex().w_full().h(DIFF_ROW).flex_none().gap(10).when(kind === "+", (e) => e.bg(t.ansi2 + "18")).when(kind === "-", (e) => e.bg(t.ansi1 + "18"))
-      .child(div().w(34).flex_none().text_right().text_color(t.dim).child(number === undefined ? "" : String(number)))
-      .child(div().flex_1().min_w(0).truncate().child(text));
   }
 
   empty(t) {
@@ -1018,8 +983,8 @@ export class Graph {
         // The side Changes tab hides the graph: Esc never reaches its selection or the Manygit list.
         if (changesTab) return;
         if (e.key !== "escape" || !(this.selected || this.opened)) return;
-        // Esc closes the dropdown, a diff, then the details, then goes back to the Manygit list.
-        if (this.picking) this.picking = false; else if (this.diff) this.diff = null; else if (this.selected) { this.selected = null; this.details = null; } else this.back(cx);
+        // Esc closes the dropdown, then the details, then goes back to the Manygit list.
+        if (this.picking) this.picking = false; else if (this.selected) { this.selected = null; this.details = null; } else this.back(cx);
         cx.stop_propagation(); cx.notify();
       })
       .on_size_change((size, cx) => {
@@ -1036,7 +1001,7 @@ export class Graph {
       .when(!full, (e) => e.child(this.changes.sideTabs(t)))
       .when(Boolean(this.picking && this.workspace && this.opened), (e) => e.child(this.picker(t)))
       .when(full, (e) => e.child(this.state === "workspace" || this.root ? this.fullBody(t, mono) : this.empty(t)))
-      .when(changesTab, (e) => e.child(this.state === "workspace" || this.root ? this.changes.render(t, mono) : this.empty(t)))
+      .when(changesTab, (e) => e.child(this.state === "workspace" || this.root ? this.changes.render(t) : this.empty(t)))
       .when(!full && !changesTab, (e) => e.children(this.graphParts(t, mono)));
   }
 
@@ -1055,7 +1020,7 @@ export class Graph {
       .child(div().w(1).h_full().bg(dragging ? t.accent : t.border))
       .hover((s) => s.bg(t.hover));
     return h_flex().flex_1().min_h(0).w_full()
-      .child(v_flex().w(this.changesWidth()).h_full().min_h(0).flex_none().child(this.changes.render(t, mono)))
+      .child(v_flex().w(this.changesWidth()).h_full().min_h(0).flex_none().child(this.changes.render(t)))
       .child(grip)
       .child(v_flex().flex_1().min_w(0).h_full().min_h(0).children(this.graphParts(t, mono)));
   }

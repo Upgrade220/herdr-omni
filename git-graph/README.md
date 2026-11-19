@@ -5,7 +5,8 @@
 This copy is adapted from [rabeeh-ta/herdr-git-graph](https://github.com/rabeeh-ta/herdr-git-graph) (MIT). It adds:
 
 - **Side panel with two tabs, Changes and Graph.** The panel follows the last focused terminal.
-- **Changes.** Stage, unstage and discard files (discard asks first), as a list or a tree, with a diff per file. Changes are ported from git-panel by LaiqianDS in [LaiqianDS/herdr-mods](https://github.com/LaiqianDS/herdr-mods) (Apache-2.0).
+- **Changes.** Stage, unstage and discard files (discard asks first), as a list or a tree. Changes are ported from git-panel by LaiqianDS in [LaiqianDS/herdr-mods](https://github.com/LaiqianDS/herdr-mods) (Apache-2.0).
+- **Diff tab.** Click a file in Changes or in a commit's details and its diff opens in a tab of its own, one per space, inline or side by side, with syntax colours. Another click reuses the tab. The Diff tab is ported from better-changes by munza in [munza/herdr-mods](https://github.com/munza/herdr-mods) (Apache-2.0).
 - **Commit box.** It is folded until you need it. Unresolved conflicts block the commit.
 - **Branch picker.** Search, switch to a branch, or create one.
 - **Click the hash** in the details strip to copy it.

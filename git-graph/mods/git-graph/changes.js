@@ -91,8 +91,19 @@ export function swapDraft(drafts, fromRoot, toRoot, current) {
   return next;
 }
 
-// A working-tree diff of one path: the index against HEAD (staged) or the files against the index.
-export const workDiffArgs = (staged, path) => [LIT, "diff", ...(staged ? ["--cached"] : []), "--no-color", "--no-ext-diff", "--no-textconv", "--", path];
+// The Diff tab's source for a Changes row: kind is "staged" or "work".
+export function rowSource(kind, change) {
+  if (kind === "staged") return "staged";
+  return change.fresh ? "untracked" : change.s === "!" ? "conflict" : "unstaged";
+}
+
+// The Diff tab's source for a file of the graph's Uncommitted row (a parseStatus entry):
+// a file changed in both the index and the working tree opens on the working tree, what the person sees.
+export function uncommittedSource(f) {
+  if (f.untracked) return "untracked";
+  if (f.status === "U") return "conflict";
+  return f.xy?.[1] && f.xy[1] !== " " ? "unstaged" : "staged";
+}
 
 // fileTree rows without those under a collapsed dir (a Set of dir paths).
 export function visibleRows(rows, collapsed) {
@@ -102,9 +113,6 @@ export function visibleRows(rows, collapsed) {
 
 export const commitLabel = (stagedCount, workCount, conflicted = false) =>
   (conflicted ? "Resolve conflicts first" : stagedCount ? "Commit" : workCount ? "Commit all" : "Nothing to commit");
-
-// A diff's scrolling width; reduce, not a spread, which overflows the stack on a huge diff.
-export const diffWidth = (rows) => rows.reduce((w, r) => Math.max(w, r.text.length * 6.6 + 60), 300);
 
 // The full view's Changes column: 320 by default, at least 240, at most half the pane (`total`, unknown before it's measured).
 export const CHANGES_W = 320, CHANGES_MIN = 240;
