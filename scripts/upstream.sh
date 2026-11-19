@@ -10,6 +10,8 @@
 # into ./<name>/ with its git history, using git subtree, and records it in
 # upstreams.tsv. `sync` merges the upstream's new commits into your edited
 # copy; conflicts are resolved like any merge. Needs a clean working tree.
+# Each upstream remote tracks only its borrowed branch, and the split/<name>
+# helper branch is removed once used.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -23,11 +25,24 @@ clean_tree() {
   git diff --quiet && git diff --cached --quiet || die "commit or stash your changes first"
 }
 
+# Drops <remote>'s tracking refs other than <branch> (left by older fetches).
+prune_remote() {
+  local remote=$1 branch=$2 ref
+  git for-each-ref --format='%(refname)' "refs/remotes/$remote/" | while read -r ref; do
+    [ "$ref" = "refs/remotes/$remote/$branch" ] || git update-ref -d "$ref"
+  done
+}
+
 # Split <path> out of <remote>/<branch> into a branch holding only that folder.
 split_branch() {
   local name=$1 url=$2 path=$3 branch=$4 remote
   remote=$(remote_name "$name")
-  git remote get-url "$remote" >/dev/null 2>&1 || git remote add "$remote" "$url"
+  # The remote tracks only the borrowed branch: a fetch (or `git fetch --all`)
+  # then brings in that one branch, not every branch of the upstream repo.
+  git remote get-url "$remote" >/dev/null 2>&1 || git remote add -t "$branch" --no-tags "$remote" "$url"
+  git remote set-branches "$remote" "$branch"
+  git config "remote.$remote.tagOpt" --no-tags
+  prune_remote "$remote" "$branch"
   git fetch --quiet --no-tags "$remote" "$branch"
   local sha
   if [ "$path" = "." ]; then
@@ -55,6 +70,7 @@ cmd_add() {
   split_branch "$name" "$url" "$path" "$branch"
   git subtree add --prefix="$name" "split/$name" \
     -m "Add $name from $url ($path@$branch)"
+  git branch -D --quiet "split/$name"
   printf '%s\t%s\t%s\t%s\n' "$name" "$url" "$path" "$branch" >> "$TSV"
   git add "$TSV" && git commit --quiet -m "Track $name upstream"
   echo "added ./$name - remember to keep its LICENSE and credit it in README.md"
@@ -67,6 +83,7 @@ cmd_sync_one() {
   echo "syncing $name from $url ($path@$branch)"
   git subtree merge --prefix="$name" "split/$name" \
     -m "Sync $name from $url ($path@$branch)"
+  git branch -D --quiet "split/$name"
 }
 
 cmd_sync() {
