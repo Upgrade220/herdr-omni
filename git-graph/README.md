@@ -2,13 +2,16 @@
 
 ## Changes in herdr-omni
 
-This copy is adapted from [rabeeh-ta/herdr-git-graph](https://github.com/rabeeh-ta/herdr-git-graph) (v0.3.3, MIT). Work in progress:
+This copy is adapted from [rabeeh-ta/herdr-git-graph](https://github.com/rabeeh-ta/herdr-git-graph) (MIT). It adds:
 
-- A Changes view: stage, unstage, discard and diff files, ported from git-panel in [LaiqianDS/herdr-mods](https://github.com/LaiqianDS/herdr-mods) (Apache-2.0).
-- Branch switching and creation from a picker.
-- A commit box.
-- A full tab named Git, with the graph, changes and commit together.
-- The update window's prompt points at `scripts/upstream.sh sync git-graph`; install with `git-graph/sync.sh`.
+- **Side panel with two tabs, Changes and Graph.** The panel follows the last focused terminal.
+- **Changes.** Stage, unstage and discard files (discard asks first), as a list or a tree, with a diff per file. Changes are ported from git-panel by LaiqianDS in [LaiqianDS/herdr-mods](https://github.com/LaiqianDS/herdr-mods) (Apache-2.0).
+- **Commit box.** It is folded until you need it. Unresolved conflicts block the commit.
+- **Branch picker.** Search, switch to a branch, or create one.
+- **Click the hash** in the details strip to copy it.
+- **⤢ Full** opens a "Git" tab with the changes beside the graph.
+- **File icons** come from better-icons when it is installed.
+- **Updates.** Run `scripts/upstream.sh sync git-graph`, then `git-graph/sync.sh`.
 
 A commit graph for the [Herdr](https://herdr.dev) desktop app, in the spirit of
 VS Code's [Git Graph](https://github.com/mhutchie/vscode-git-graph) extension:
