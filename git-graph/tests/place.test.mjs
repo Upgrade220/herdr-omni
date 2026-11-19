@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { terminalLoc, fallbackLoc, pickLoc, gitTabs, sidePanelId, withModIcon, lastLocUpdate, MOD_ICON } from "../mods/git-graph/place.js";
+import { terminalLoc, fallbackLoc, pickLoc, gitTabs, sidePanelId, withModIcon, lastLocUpdate, MOD_ICON, diffTabOf, openDiffPlan, pendingTarget } from "../mods/git-graph/place.js";
 
 // Space s1: tab A has a terminal in /w/main (pane pa) and a git-graph pane (pl, mixed tab);
 // tab G holds only git-graph (pg). Space s2 has no terminals.
@@ -85,4 +85,27 @@ test("lastLocUpdate: a new terminal location is recorded, the same one or none i
   assert.equal(lastLocUpdate({ cwd: "/w/main" }, at("pa", "A")), null);
   // Focus on a git-graph pane: nothing to record.
   assert.equal(lastLocUpdate({ cwd: "/w/feature", on: null }, at("pg", "G")), null);
+});
+
+test("diffTabOf: the recorded tab only while it is still in the space", () => {
+  assert.equal(diffTabOf({ s1: "G" }, spaces, "s1"), "G");
+  assert.equal(diffTabOf({ s1: "gone" }, spaces, "s1"), null);
+  assert.equal(diffTabOf({ s2: "H" }, spaces, "s1"), null);
+  assert.equal(diffTabOf(null, spaces, "s1"), null);
+});
+
+test("openDiffPlan: selects a live tab, else asks for a new one named after the file", () => {
+  const target = { path: "src/shop/cart.js" };
+  const live = openDiffPlan({ map: { s1: "G" }, spaces, spaceId: "s1", target, now: 5 });
+  assert.deepEqual(live, { select: "G", newTab: null, open: { s1: { target, at: 5 } } });
+  const none = openDiffPlan({ map: { s1: "gone" }, spaces, spaceId: "s1", target, now: 6 });
+  assert.deepEqual(none, { select: null, newTab: { name: "cart.js" }, open: { s1: { target, at: 6 } } });
+});
+
+test("pendingTarget: only a newer entry for that space", () => {
+  const open = { s1: { target: { path: "a" }, at: 10 } };
+  assert.deepEqual(pendingTarget(open, "s1", 9), { target: { path: "a" }, at: 10 });
+  assert.equal(pendingTarget(open, "s1", 10), null);
+  assert.equal(pendingTarget(open, "s2", 0), null);
+  assert.equal(pendingTarget(null, "s1", 0), null);
 });

@@ -87,3 +87,30 @@ export function withModIcon(map) {
   if (map?.[MOD] === MOD_ICON) return null;
   return { ...(map ?? {}), [MOD]: MOD_ICON };
 }
+
+// shared maps: spaceId -> Diff tab id, spaceId -> { target, at } to show, and the Diff view's layout / full-screen state.
+export const DIFF_TABS = "git-graph.diff-tabs";
+export const DIFF_OPEN = "git-graph.diff-open";
+export const DIFF_LAYOUT = "git-graph.diff-layout";
+export const DIFF_FULL = "git-graph.diff-full";
+
+// The space's recorded Diff tab, only while it is still among the space's tabs.
+export function diffTabOf(map, spaces, spaceId) {
+  const id = map?.[spaceId];
+  if (!id) return null;
+  const tabs = (spaces ?? []).find((s) => s.id === spaceId)?.tabs ?? [];
+  return tabs.some((t) => t.id === id) ? id : null;
+}
+
+// How to show `target`: select the live Diff tab, else ask for a new one named after the file; `open` is the hand-off.
+export function openDiffPlan({ map, spaces, spaceId, target, now }) {
+  const select = diffTabOf(map, spaces, spaceId);
+  const name = String(target?.path ?? "").split("/").pop();
+  return { select, newTab: select ? null : { name }, open: { [spaceId]: { target, at: now } } };
+}
+
+// The space's hand-off entry when it is newer than `seenAt`.
+export function pendingTarget(openMap, spaceId, seenAt) {
+  const e = openMap?.[spaceId];
+  return e && e.at > (seenAt ?? 0) ? e : null;
+}
