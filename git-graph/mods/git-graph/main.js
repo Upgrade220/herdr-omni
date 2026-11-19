@@ -8,11 +8,12 @@ import { Settings } from "./settings.js";
 
 // One mod, several roles: the graph (a panel or a pane), and over the window the
 // right-click menu, the dialogs its actions ask first, the update window and
-// the Manygit settings (props.role).
+// the Manygit settings (props.role). The graph is the side panel's narrow view, or the
+// full Git tab (props.view "full").
 export default class GitGraph extends View {
   init(_props, cx) {
     const role = props()?.role;
-    this.part = role === "menu" ? new Menu() : role === "dialog" ? new Dialog() : role === "update" ? new Update() : role === "settings" ? new Settings() : new Graph();
+    this.part = role === "menu" ? new Menu() : role === "dialog" ? new Dialog() : role === "update" ? new Update() : role === "settings" ? new Settings() : new Graph(props()?.view === "full" ? "full" : "side");
     this.part.init(cx);
   }
 

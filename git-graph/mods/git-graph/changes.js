@@ -95,3 +95,7 @@ export const commitLabel = (stagedCount, workCount, conflicted = false) =>
 
 // A diff's scrolling width; reduce, not a spread, which overflows the stack on a huge diff.
 export const diffWidth = (rows) => rows.reduce((w, r) => Math.max(w, r.text.length * 6.6 + 60), 300);
+
+// The full view's Changes column: 320 by default, at least 240, at most half the pane (`total`, unknown before it's measured).
+export const CHANGES_W = 320, CHANGES_MIN = 240;
+export const clampChangesWidth = (w, total) => Math.round(Math.max(CHANGES_MIN, Math.min((total ?? Infinity) * 0.5, w)));

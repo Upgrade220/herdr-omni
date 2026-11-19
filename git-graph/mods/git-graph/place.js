@@ -25,6 +25,13 @@ export function terminalLoc({ focused, panes, spaces }) {
   return loc(cwd, on);
 }
 
+// What to write to shared LAST_LOC: the focused terminal's location when it differs from `last`, else null.
+export function lastLocUpdate(last, snap) {
+  const term = terminalLoc(snap);
+  if (!term || (last?.cwd === term.cwd && (last?.on ?? null) === term.on)) return null;
+  return term;
+}
+
 // A terminal in the focused tab, then in its space, then the space folder.
 export function fallbackLoc({ focused, panes, spaces }) {
   const f = focused;

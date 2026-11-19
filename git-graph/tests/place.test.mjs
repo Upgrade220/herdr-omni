@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { terminalLoc, fallbackLoc, pickLoc, gitTabs, sidePanelId, withModIcon, MOD_ICON } from "../mods/git-graph/place.js";
+import { terminalLoc, fallbackLoc, pickLoc, gitTabs, sidePanelId, withModIcon, lastLocUpdate, MOD_ICON } from "../mods/git-graph/place.js";
 
 // Space s1: tab A has a terminal in /w/main (pane pa) and a git-graph pane (pl, mixed tab);
 // tab G holds only git-graph (pg). Space s2 has no terminals.
@@ -76,4 +76,13 @@ test("withModIcon adds the icon once", () => {
   assert.equal(added["git-graph"], MOD_ICON);
   assert.equal(added.other, "x.svg");
   assert.equal(withModIcon(added), null);
+});
+
+test("lastLocUpdate: a new terminal location is recorded, the same one or none is not", () => {
+  assert.deepEqual(lastLocUpdate(null, at("pa", "A")), { cwd: "/w/main", on: null });
+  assert.deepEqual(lastLocUpdate({ cwd: "/w/feature", on: null }, at("pa", "A")), { cwd: "/w/main", on: null });
+  assert.equal(lastLocUpdate({ cwd: "/w/main", on: null }, at("pa", "A")), null);
+  assert.equal(lastLocUpdate({ cwd: "/w/main" }, at("pa", "A")), null);
+  // Focus on a git-graph pane: nothing to record.
+  assert.equal(lastLocUpdate({ cwd: "/w/feature", on: null }, at("pg", "G")), null);
 });

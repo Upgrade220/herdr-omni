@@ -3,7 +3,7 @@
 // a pane. Labels take double-clicks (checkout) and right-clicks (menus).
 import { div, svg, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, layout, exec, watchFolder, readTextFile, theme, settings, props, shared, setShared, openOverlay, home, notify, knownAgents, updates } from "herdr";
+import { spaces, panes, focused, layout, exec, watchFolder, readTextFile, theme, settings, props, shared, setShared, openOverlay, home, notify, knownAgents, updates, run as runCommand } from "herdr";
 import { layoutLanes } from "./lanes.js";
 import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, parseLog, parseStatus, withUncommitted, labelsOf, hitLabel,
   menuFor, menuHeight, fileArgs, joinFiles, diffArgs, diffRows } from "./git.js";
@@ -11,6 +11,8 @@ import { perform, openDialog, showChanges } from "./act.js";
 import { icon } from "./menu.js";
 import { available, check, openUpdate, newer } from "./update.js";
 import { ChangesView, TAB_H } from "./changes-view.js";
+import { CHANGES_W, clampChangesWidth } from "./changes.js";
+import { MOD, TAB_NAME, LAST_LOC, pickLoc, lastLocUpdate, gitTabs, sidePanelId, withModIcon } from "./place.js";
 import { BranchPicker } from "./branch-picker.js";
 import { depthOf, unsearched, findArgs, parseFound, REPO_STATUS, LATEST_TAG, FETCH, REMOTES, fetchable, parseRepoStatus, parseRemotes, webUrl, syncOf } from "./repos.js";
 
@@ -28,12 +30,12 @@ function paneFrame(node) {
   return null;
 }
 
+const snap = () => ({ focused: focused(), panes: panes(), spaces: spaces() });
+
+// The focused terminal, else the last one any copy saw (shared LAST_LOC), else a terminal or folder nearby: see place.js.
 function location(folder) {
   if (folder) return { cwd: folder, on: null };
-  const space = spaces().find((s) => s.active), f = focused();
-  const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
-  const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on };
+  return pickLoc(snap(), shared(LAST_LOC)) ?? { cwd: null, on: null };
 }
 
 const PAGE = 300, ROW = 24, LANE = 12, PAD = 6, DIFF_ROW = 20;
@@ -50,6 +52,8 @@ const GRAPH_MIN = 56;
 const DETAIL_DEFAULT = 320, DETAIL_MIN = 120, DETAIL_ROWS = 3;
 // Above the list and the strip: the header (42), the toolbar (34) and the column headings (24), plus the border.
 const CHROME_H = 102;
+// How often each copy records the focused terminal (LAST_LOC) and follows it; the full view's Changes grip width.
+const TICK_MS = 700, GRIP_W = 6;
 // side: which way a drag widens it. Graph's handle is on its right edge, the others' on their left.
 const COLUMNS = { graph: { width: null, min: 24, side: 1 }, date: { width: 62, min: 36, max: 240, side: -1 },
   author: { width: 120, min: 50, max: 400, side: -1 }, hash: { width: 66, min: 40, max: 200, side: -1 } };
@@ -142,6 +146,9 @@ const tagsShown = () => shared("git-graph.tags") === true;
 
 
 export class Graph {
+  // view: "side" (the panel: Changes and Graph tabs, a Full button) or "full" (the Git tab: both side by side).
+  constructor(view = "side") { this.view = view; }
+
   init(cx) {
     this.folder = props()?.folder ?? null;
     // A scrollbar finds its list by name: each copy (panel, pane) needs its own.
@@ -163,8 +170,14 @@ export class Graph {
     this.changes = new ChangesView(); this.changes.init(this, cx);
     // The branch picker, dropped from the header's branch.
     this.branchPicker = new BranchPicker(); this.branchPicker.init(this, cx);
+    // The full view's Changes column, and the pane's whole width it's clamped against.
+    this.changesW = Number(shared("git-graph.changes-width")) || CHANGES_W; this.seenChangesW = this.changesW; this.paneW = undefined;
+    // The tab bars draw a mod tab's icon from shared("mod-icons"): publish ours (init, not render).
+    const icons = withModIcon(shared("mod-icons"));
+    if (icons) setShared("mod-icons", icons);
     this.reset();
     this.refresh(cx);
+    cx.timer.every(TICK_MS, (cx) => this.tick(cx));
     cx.timer.after(1500, (cx) => this.warm(cx));
     // Remote spaces can't be watched: poll them gently. New folders get read ahead.
     // The Manygit list re-reads too: edits in a working tree don't touch .git.
@@ -173,6 +186,24 @@ export class Graph {
   }
 
   key() { return JSON.stringify(location(this.folder)); }
+
+  // Records the focused terminal for every copy (only when it changed, never in render), then follows the location.
+  tick(cx) {
+    const update = lastLocUpdate(shared(LAST_LOC), snap());
+    if (update) setShared(LAST_LOC, update);
+    if (this.key() !== this.context) { this.refresh(cx); cx.notify(); }
+  }
+
+  // ⤢ Full: the space's Git tab (the focused one when it is one, else the first), or a new one; then the side panel closes.
+  showFull() {
+    const f = focused();
+    const tabs = gitTabs(panes(), spaces(), f?.space);
+    const tab = tabs.includes(f?.tab) ? f.tab : tabs[0];
+    if (tab) runCommand("tab.select", { id: tab });
+    else runCommand("tab.new", { name: TAB_NAME, mod: MOD, props: { view: "full" } });
+    const panel = sidePanelId(layout());
+    if (panel) runCommand("layout.hide", { id: panel });
+  }
 
   reset() {
     Object.assign(this, folderState());
@@ -422,8 +453,23 @@ export class Graph {
     });
   }
 
-  // CHROME_H plus the side tab strip, which every graph draws under its header for now.
-  chromeH() { return CHROME_H + TAB_H; }
+  // CHROME_H plus the tab strip the side view draws under its header.
+  chromeH() { return CHROME_H + (this.view === "side" ? TAB_H : 0); }
+
+  // The full view's Changes column width, and the graph's width beside it (all of it in the side view).
+  changesWidth() { return clampChangesWidth(this.changesW, this.paneW); }
+  measure() {
+    const width = this.view === "full" ? this.paneW - this.changesWidth() - GRIP_W : this.paneW;
+    const wide = width >= 600, graphMax = Math.max(60, Math.round(width * 0.4)), changed = wide !== this.wide || graphMax !== this.graphMax;
+    this.width = width; this.wide = wide; this.graphMax = graphMax;
+    return changed;
+  }
+  startChangesDrag(e, cx) {
+    cx.stop_propagation();
+    if (e.click_count >= 2) { this.changesW = CHANGES_W; this.saveChangesW(); this.measure(); cx.notify(); return; }
+    this.drag = { axis: "changes", x: e.position.x, from: this.changesWidth() };
+  }
+  saveChangesW() { this.seenChangesW = this.changesW; setShared("git-graph.changes-width", this.changesW); }
 
   // After the Changes tab runs git: read again now, without the shared "changed" stamp reading twice.
   refreshNow(cx) { this.seenChange = shared("git-graph.changed"); this.refresh(cx); }
@@ -460,6 +506,11 @@ export class Graph {
   moveDrag(e, cx) {
     const d = this.drag;
     if (!d) return;
+    if (d.axis === "changes") {
+      const w = clampChangesWidth(d.from + (e.position.x - d.x) / this.unit(), this.paneW);
+      if (w !== this.changesW) { this.changesW = w; d.moved = true; this.measure(); cx.notify(); }
+      return;
+    }
     if (d.axis === "y") {
       const h = this.clampDetail(d.from - (e.position.y - d.y) / this.unit());
       if (h !== this.detail) { this.detail = h; d.moved = true; cx.notify(); }
@@ -473,7 +524,7 @@ export class Graph {
     const d = this.drag;
     if (!d) return;
     this.drag = null;
-    if (d.moved) { if (d.axis === "y") this.saveDetail(); else this.saveColumns(); }
+    if (d.moved) { if (d.axis === "y") this.saveDetail(); else if (d.axis === "changes") this.saveChangesW(); else this.saveColumns(); }
     cx.notify();
   }
 
@@ -703,7 +754,10 @@ export class Graph {
         return e.child(this.iconButton("graph-fetch-all", "fetch", run ? `Fetching ${run.done}/${run.total}…` : "Fetch all", Boolean(run), (_e, cx) => this.fetchEvery(cx), t));
       })
       .when(this.state !== "nofolder", (e) => e.child(this.iconButton("graph-refresh", "refresh", null, false, (_e, cx) => this.refresh(cx), t)))
-      .when(settingsShown, (e) => e.child(this.iconButton("graph-settings", "settings", null, false, () => this.openSettings(), t)));
+      .when(settingsShown, (e) => e.child(this.iconButton("graph-settings", "settings", null, false, () => this.openSettings(), t)))
+      .when(this.view === "side", (e) => e.child(h_flex().id("graph-full").h(24).px(7).flex_none().items_center().rounded(6).text_size(11.5).cursor_pointer()
+        .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Open the Git tab")
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(() => this.showFull()).child("⤢ Full")));
   }
 
   openSettings() {
@@ -942,6 +996,8 @@ export class Graph {
     if (!this.drag && seen !== this.seenCols) { this.seenCols = seen; this.cols = withDefaults(savedCols); }
     const savedDetail = Number(shared("git-graph.details")) || 0;
     if (!this.drag && savedDetail !== this.seenDetail) { this.seenDetail = savedDetail; this.detail = savedDetail; }
+    const savedChangesW = Number(shared("git-graph.changes-width")) || CHANGES_W;
+    if (!this.drag && savedChangesW !== this.seenChangesW) { this.seenChangesW = savedChangesW; this.changesW = savedChangesW; if (this.paneW !== undefined) this.measure(); }
     const fetched = shared("git-graph.fetched");
     if (fetched?.at !== this.seenFetched) { this.seenFetched = fetched?.at; if (fetched?.root) this.fetchErrors.delete(fetched.root); }
     // After an action (here, or from a Manygit row's menu) the graph or the list reads again.
@@ -950,7 +1006,7 @@ export class Graph {
     const setting = `${depthSetting()} ${tagsShown()}`;
     if (setting !== this.seenSetting) { const first = this.seenSetting === undefined; this.seenSetting = setting; if (!first && !this.opened) this.refresh(cx); }
     const t = theme(), mono = settings().font_family ?? "JetBrains Mono", ready = this.state === "ready";
-    const changesTab = this.changes.view() === "changes";
+    const full = this.view === "full", changesTab = !full && this.changes.view() === "changes";
     return v_flex().id("git-graph").size_full().min_h(0).rounded(paneFrame(layout())?.radius ?? 0).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(12.5).track_focus(this.handle)
       .on_mouse_move((e, cx) => this.moveDrag(e, cx))
@@ -958,28 +1014,47 @@ export class Graph {
       .on_hover((hovered, cx) => { if (!hovered) this.endDrag(cx); })
       .on_key_down((e, cx) => {
         if (e.key === "escape" && this.branchPicker.escape()) { cx.stop_propagation(); cx.notify(); return; }
-        if (e.key === "escape" && this.changes.view() === "changes" && this.changes.escape()) { cx.stop_propagation(); cx.notify(); return; }
+        if (e.key === "escape" && (full || changesTab) && this.changes.escape()) { cx.stop_propagation(); cx.notify(); return; }
         if (e.key !== "escape" || !(this.selected || this.opened)) return;
         // Esc closes the dropdown, a diff, then the details, then goes back to the Manygit list.
         if (this.picking) this.picking = false; else if (this.diff) this.diff = null; else if (this.selected) { this.selected = null; this.details = null; } else this.back(cx);
         cx.stop_propagation(); cx.notify();
       })
       .on_size_change((size, cx) => {
-        const width = size.width / this.unit(), wide = width >= 600, graphMax = Math.max(60, Math.round(width * 0.4));
-        this.width = width;
+        // The full view redraws on any width change: its Changes column is clamped to half of it.
+        const paneW = size.width / this.unit(), widened = full && paneW !== this.paneW;
+        this.paneW = paneW;
         // The details strip fills what the history leaves, so it needs the pane's height too.
         const height = size.height / this.unit(), resized = height !== this.height && Boolean(this.selected);
         this.height = height;
-        if (wide !== this.wide || graphMax !== this.graphMax || resized) { this.wide = wide; this.graphMax = graphMax; cx.notify(); }
+        if (this.measure() || resized || widened) cx.notify();
       })
       .child(this.header(t))
       .when(this.branchPicker.shown(), (e) => e.child(this.branchPicker.render(t)))
-      .child(this.changes.sideTabs(t))
+      .when(!full, (e) => e.child(this.changes.sideTabs(t)))
       .when(Boolean(this.picking && this.workspace && this.opened), (e) => e.child(this.picker(t)))
+      .when(full, (e) => e.child(this.state === "workspace" || this.root ? this.fullBody(t, mono) : this.empty(t)))
       .when(changesTab, (e) => e.child(this.state === "workspace" || this.root ? this.changes.render(t, mono) : this.empty(t)))
-      .when(!changesTab && this.state === "workspace", (e) => e.child(this.workspaceList(t)))
-      .when(!changesTab && ready, (e) => e.child(this.toolbar(t)).child(this.columns(t, this.graphWidth())).child(this.list(t, mono))
-        .when(Boolean(this.selected), (el) => el.child(this.detailsPane(t, mono))))
-      .when(!changesTab && !ready && this.state !== "workspace", (e) => e.child(this.empty(t)));
+      .when(!full && !changesTab, (e) => e.children(this.graphParts(t, mono)));
+  }
+
+  // The graph under the header: the Manygit list, the table with its details strip, or what stands in for them.
+  graphParts(t, mono) {
+    if (this.state === "workspace") return [this.workspaceList(t)];
+    if (this.state !== "ready") return [this.empty(t)];
+    return [this.toolbar(t), this.columns(t, this.graphWidth()), this.list(t, mono), ...(this.selected ? [this.detailsPane(t, mono)] : [])];
+  }
+
+  // The full view: the Changes column on the left (drag its edge, double-click for 320), the graph on the right.
+  fullBody(t, mono) {
+    const dragging = this.drag?.axis === "changes";
+    const grip = div().id("graph-changes-grip").w(GRIP_W).h_full().flex_none().flex().justify_center().cursor_col_resize()
+      .on_mouse_down("left", (e, cx) => this.startChangesDrag(e, cx))
+      .child(div().w(1).h_full().bg(dragging ? t.accent : t.border))
+      .hover((s) => s.bg(t.hover));
+    return h_flex().flex_1().min_h(0).w_full()
+      .child(v_flex().w(this.changesWidth()).h_full().min_h(0).flex_none().child(this.changes.render(t, mono)))
+      .child(grip)
+      .child(v_flex().flex_1().min_w(0).h_full().min_h(0).children(this.graphParts(t, mono)));
   }
 }

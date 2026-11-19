@@ -155,3 +155,15 @@ test("diffWidth: no spread, works on many rows", () => {
   assert.equal(C.diffWidth(rows), 100 * 6.6 + 60);
   assert.equal(C.diffWidth([]), 300);
 });
+
+test("clampChangesWidth: 240 at least, half the width at most, rounded", () => {
+  assert.equal(C.CHANGES_W, 320);
+  assert.equal(C.clampChangesWidth(320, 1200), 320);
+  assert.equal(C.clampChangesWidth(100, 1200), 240);
+  assert.equal(C.clampChangesWidth(900, 1200), 600);
+  assert.equal(C.clampChangesWidth(300.4, 1200), 300);
+  // A pane under 480 wide: the minimum wins.
+  assert.equal(C.clampChangesWidth(320, 400), 240);
+  // Before the first measure there is no upper bound.
+  assert.equal(C.clampChangesWidth(900, undefined), 900);
+});
