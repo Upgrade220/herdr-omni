@@ -109,16 +109,6 @@ test("commitPlan: blank title is null; body and add -A", () => {
   assert.deepEqual(C.commitPlan("t", "", 0), [["add", "-A"], ["commit", "-m", "t"]]);
 });
 
-test("workDiffArgs: unstaged and staged diffs of a path with spaces", () => {
-  const repo = mk(), p = "a b/ç.txt";
-  write(repo, p, "one\n"); git(repo, ["add", "."]); git(repo, ["commit", "-qm", "add"]);
-  write(repo, p, "two\n"); git(repo, ["add", "--", p]); write(repo, p, "three\n");
-  const work = G.diffRows(git(repo, C.workDiffArgs(false, p)));
-  const staged = G.diffRows(git(repo, C.workDiffArgs(true, p)));
-  assert.deepEqual(work.filter((r) => r.kind === "+").map((r) => r.text), ["three"]);
-  assert.deepEqual(staged.filter((r) => r.kind === "+").map((r) => r.text), ["two"]);
-});
-
 test("visibleRows: a collapsed dir hides what's under it, not its siblings", () => {
   const ch = (path) => ({ path, s: "M", fresh: false });
   const rows = C.fileTree([ch("src/a/x.js"), ch("src/b.js"), ch("src/ab.js"), ch("top.md")]);
@@ -150,12 +140,6 @@ test("conflicts: commitPlan refuses, commitLabel says resolve first", () => {
   assert.equal(C.commitLabel(1, 2, false), "Commit");
 });
 
-test("diffWidth: no spread, works on many rows", () => {
-  const rows = Array.from({ length: 200000 }, (_x, i) => ({ text: i === 5 ? "x".repeat(100) : "a" }));
-  assert.equal(C.diffWidth(rows), 100 * 6.6 + 60);
-  assert.equal(C.diffWidth([]), 300);
-});
-
 test("clampChangesWidth: 240 at least, half the width at most, rounded", () => {
   assert.equal(C.CHANGES_W, 320);
   assert.equal(C.clampChangesWidth(320, 1200), 320);
@@ -182,7 +166,7 @@ test("literal pathspecs: a file named *.log is only that file for discard and st
   assert.equal(existsSync(join(repo, "b.log")), true);
 });
 
-test("literal pathspecs: unstage and diff of *.log touch only that file; whole-tree forms still work", () => {
+test("literal pathspecs: unstage of *.log touches only that file; whole-tree forms still work", () => {
   const repo = mk();
   for (const p of ["a.log", "*.log"]) write(repo, p, p + "\n");
   git(repo, ["add", "."]); git(repo, ["commit", "-qm", "logs"]);
@@ -190,9 +174,6 @@ test("literal pathspecs: unstage and diff of *.log touch only that file; whole-t
   git(repo, ["add", "."]);
   apply(repo, C.unstageArgs(["*.log"], true));
   assert.deepEqual(C.splitChanges(status(repo)).staged.map((c) => c.path), ["a.log"]);
-  const diff = git(repo, C.workDiffArgs(false, "*.log"));
-  assert.match(diff, /\*\.log changed/);
-  assert.doesNotMatch(diff, /a\.log changed/);
   apply(repo, C.unstageAllArgs(true));
   assert.deepEqual(C.splitChanges(status(repo)).staged, []);
   apply(repo, C.stageAllArgs());
@@ -223,4 +204,28 @@ test("swapDraft: a draft stays with its repo", () => {
   assert.deepEqual(cur, { title: "B title", body: "" });
   assert.equal(drafts.has("/a"), false, "a blank draft is not kept");
   assert.deepEqual(C.swapDraft(drafts, "/b", null, cur), empty);
+});
+
+test("rowSource: a Changes row's side for the Diff tab", () => {
+  assert.equal(C.rowSource("staged", { path: "a", s: "M", fresh: false }), "staged");
+  assert.equal(C.rowSource("work", { path: "a", s: "M", fresh: false }), "unstaged");
+  assert.equal(C.rowSource("work", { path: "a", s: "A", fresh: true }), "untracked");
+  assert.equal(C.rowSource("work", { path: "a", s: "!", fresh: false }), "conflict");
+});
+
+test("uncommittedSource: the side an Uncommitted row's file opens on, from real statuses", () => {
+  const repo = mk();
+  write(repo, "both.txt", "1"); write(repo, "staged.txt", "1"); write(repo, "work.txt", "1");
+  git(repo, ["add", "."]); git(repo, ["commit", "-qm", "files"]);
+  write(repo, "both.txt", "2"); git(repo, ["add", "both.txt"]); write(repo, "both.txt", "3");
+  write(repo, "staged.txt", "2"); git(repo, ["add", "staged.txt"]);
+  write(repo, "work.txt", "2");
+  write(repo, "new.txt", "x");
+  write(repo, "added.txt", "x"); git(repo, ["add", "added.txt"]);
+  const by = Object.fromEntries(status(repo).map((f) => [f.path, C.uncommittedSource(f)]));
+  assert.deepEqual(by, { "added.txt": "staged", "both.txt": "unstaged", "new.txt": "untracked", "staged.txt": "staged", "work.txt": "unstaged" });
+  assert.equal(C.uncommittedSource({ xy: "UU", status: "U", untracked: false, staged: false }), "conflict");
+  assert.equal(C.uncommittedSource({ xy: "AA", status: "U", untracked: false, staged: false }), "conflict");
+  assert.equal(C.uncommittedSource({ xy: " D", status: "D", untracked: false, staged: false }), "unstaged");
+  assert.equal(C.uncommittedSource({ xy: "D ", status: "D", untracked: false, staged: true }), "staged");
 });
