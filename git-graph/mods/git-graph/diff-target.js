@@ -21,13 +21,15 @@ export function diffArgs(target, full = false) {
   }
 }
 
+export const EMPTY_FILE = "Empty file";
 export const UNREADABLE = "Cannot read this file. It may be binary or too large.";
 
-// An untracked file is all additions. text null: { gone } when the file no longer exists,
+// An untracked file is all additions; an empty one says so. text null: { gone } when the file no longer exists,
 // else (exists: it is there but too large or not text) a message saying it can't be read.
 export function untrackedRows(text, exists = false) {
   if (text == null) return exists ? { message: UNREADABLE } : { gone: true };
   if (text.includes("\0")) return { message: BINARY };
+  if (text === "") return { message: EMPTY_FILE };
   const lines = text.split("\n");
   if (lines.length && lines[lines.length - 1] === "") lines.pop();
   return { rows: lines.slice(0, UNTRACKED_CAP).map((t, i) => ({ kind: "+", next: i + 1, text: t })) };

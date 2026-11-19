@@ -12,7 +12,7 @@ import { icon } from "./menu.js";
 import { available, check, openUpdate, newer } from "./update.js";
 import { ChangesView, TAB_H } from "./changes-view.js";
 import { CHANGES_W, clampChangesWidth, uncommittedSource } from "./changes.js";
-import { MOD, TAB_NAME, LAST_LOC, DIFF_TABS, pickLoc, lastLocUpdate, gitTabs, sidePanelId, withModIcon } from "./place.js";
+import { MOD, TAB_NAME, LAST_LOC, DIFF_TABS, WORKTREE, pickLoc, lastLocUpdate, gitTabs, sidePanelId, withModIcon } from "./place.js";
 import { openDiff } from "./diff-open.js";
 import { BranchPicker } from "./branch-picker.js";
 import { depthOf, unsearched, findArgs, parseFound, REPO_STATUS, LATEST_TAG, FETCH, REMOTES, fetchable, parseRepoStatus, parseRemotes, webUrl, syncOf } from "./repos.js";
@@ -83,6 +83,8 @@ function stamp(seconds) {
 const tilde = (path, on) => (!on && path?.startsWith(home()) ? "~" + path.slice(home().length) : path);
 const brief = (c) => ({ hash: c.hash, subject: c.subject, parents: c.parents });
 const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+// Tells the Diff tab the repo's changed files moved (async loads only, never render).
+const stampWorktree = (root) => { if (root) setShared(WORKTREE, { ...(shared(WORKTREE) ?? {}), [root]: Date.now() }); };
 const sameFiles = (a, b) => a.length === b.length && a.every((f, i) => f.path === b[i].path && f.status === b[i].status);
 const scopeOf = ({ all, remotes }) => `${all} ${remotes}`;
 // Folders kept as they were last read, and commits' details (a commit never changes).
@@ -279,6 +281,7 @@ export class Graph {
           if (!opened) this.workspace = null;
           if (!on) this.watch(read.root, context, cx);
           this.changes.update(read.files, Boolean(read.head));
+          if (!sameFiles(read.files, this.files)) stampWorktree(read.root);
           // A second look that finds nothing new leaves the table as it is.
           const shown = this.state === "ready" || this.state === "empty";
           if (shown && read.signature === this.signature && read.scope === this.scope && sameFiles(read.files, this.files)) return;
@@ -289,6 +292,7 @@ export class Graph {
           const files = status.code === 0 ? parseStatus(status.stdout) : [];
           this.changes.update(files, Boolean(this.head));
           if (sameFiles(files, this.files)) return;
+          stampWorktree(this.root);
           this.files = files;
         }
         this.build();

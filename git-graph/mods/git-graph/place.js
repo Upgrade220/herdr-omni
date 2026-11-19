@@ -95,6 +95,9 @@ export const DIFF_TABS = "git-graph.diff-tabs";
 export const DIFF_OPEN = "git-graph.diff-open";
 export const DIFF_LAYOUT = "git-graph.diff-layout";
 export const DIFF_FULL = "git-graph.diff-full";
+// shared: repo root -> when the Graph's status read last found its changed files different. The Diff tab
+// re-reads a working-tree diff past it (a remote space has no folder watch of its own).
+export const WORKTREE = "git-graph.worktree";
 
 // The space's recorded Diff tab, only while it is still among the space's tabs.
 export function diffTabOf(map, spaces, spaceId) {
@@ -104,11 +107,55 @@ export function diffTabOf(map, spaces, spaceId) {
   return tabs.some((t) => t.id === id) ? id : null;
 }
 
-// How to show `target`: select the live Diff tab, else ask for a new one named after the file; `open` is the hand-off.
-export function openDiffPlan({ map, spaces, spaceId, target, now }) {
+// A tab.new waits this long for its Diff tab to show up; clicks meanwhile only change the target.
+export const PENDING_MS = 2000;
+// A Diff copy started this soon after a tab.new is that tab's (CLAIM_MS: a slow start still counts).
+export const CLAIM_MS = 5000;
+
+const tabIds = (spaces, spaceId) => ((spaces ?? []).find((s) => s.id === spaceId)?.tabs ?? []).map((t) => t.id);
+
+// How to show `target`: select the live Diff tab; else, while a tab.new asked for one is still on its
+// way (`open`'s pendingTab, under PENDING_MS old), just hand over the new target; else ask for a new tab
+// named after the file, noting the space's tabs before it (`before`) so the new copy can find its own.
+// `open` is the current hand-off map; the result's `open` is this space's new entry.
+export function openDiffPlan({ map, open, spaces, spaceId, target, now }) {
   const select = diffTabOf(map, spaces, spaceId);
+  if (select) return { select, newTab: null, open: { [spaceId]: { target, at: now } } };
+  const pending = open?.[spaceId]?.pendingTab;
+  if (pending && now - pending.at < PENDING_MS) return { select: null, newTab: null, open: { [spaceId]: { target, at: now, pendingTab: pending } } };
   const name = String(target?.path ?? "").split("/").pop();
-  return { select, newTab: select ? null : { name }, open: { [spaceId]: { target, at: now } } };
+  return { select: null, newTab: { name }, open: { [spaceId]: { target, at: now, pendingTab: { at: now, before: tabIds(spaces, spaceId) } } } };
+}
+
+// The DIFF_TABS map with `ownTab` recorded for the space, or null when nothing changes: it is already
+// there, or another Diff tab of the space is recorded and still live (that one keeps the space).
+export function registerDiffTab(map, spaces, spaceId, ownTab) {
+  const live = diffTabOf(map, spaces, spaceId);
+  if (live) return null;
+  return { ...(map ?? {}), [spaceId]: ownTab };
+}
+
+// Which tab a Diff copy that hasn't found its own yet sits in, or null (try again later).
+// A fresh copy (born within CLAIM_MS after a space's pendingTab) takes the one tab of that space that
+// is not in `before` and holds only git-graph panes, and nothing when that is ambiguous. A restored
+// copy (no fresh entry) takes the focused tab when it holds only git-graph panes and is neither the
+// Git tab nor in `taken` (Diff tabs recorded by other copies): only an on-screen copy is focused.
+export function claimTab({ spaces, panes, open, born, focused, taken = [] }) {
+  const fresh = Object.entries(open ?? {}).filter(([, e]) => {
+    const at = e?.pendingTab?.at;
+    return typeof at === "number" && born >= at && born - at <= CLAIM_MS;
+  });
+  if (fresh.length) {
+    const found = fresh.flatMap(([spaceId, e]) => {
+      const before = new Set(e.pendingTab.before ?? []);
+      return gitTabs(panes, spaces, spaceId).filter((id) => !before.has(id));
+    });
+    return found.length === 1 ? found[0] : null;
+  }
+  if (!focused?.tab) return null;
+  const tab = ((spaces ?? []).find((s) => s.id === focused.space)?.tabs ?? []).find((t) => t.id === focused.tab);
+  if (!tab || tab.name === TAB_NAME) return null;
+  return gitTabs(panes, spaces, focused.space, taken).includes(focused.tab) ? focused.tab : null;
 }
 
 // The space's hand-off entry when it is newer than `seenAt`.

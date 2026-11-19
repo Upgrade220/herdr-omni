@@ -2,7 +2,7 @@
 // syntax.js: code as coloured runs, for views that draw their own rows. Herdr's highlighter
 // only reaches its Editor, which can't draw a diff or mark a line, so this is a small lexer:
 // no grammar, but block comments, template strings and open tags carry from line to line.
-// Shared byte for byte between Better Files and Better Changes; a test checks they match.
+// Used by the Diff tab (diff-view.js).
 
 // Each language's own keywords: a word is a keyword only in the languages that have it, so
 // `local` stays plain in TypeScript and `for` stays plain in an env file's comment.

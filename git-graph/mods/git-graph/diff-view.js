@@ -1,6 +1,7 @@
 // The Diff tab (props.view "diff"): one file's diff, inline or side by side, with syntax colours.
 // One per space. Changes and commit details hand it a target through shared DIFF_OPEN; it records
-// its own tab in DIFF_TABS so the next click selects it instead of opening another.
+// its own tab in DIFF_TABS so the next click selects it instead of opening another. A second copy in
+// a space (a dragged tab) leaves the recorded one alone and keeps showing what it shows.
 // Ported from better-changes (https://github.com/munza/herdr-mods, Apache-2.0).
 import { div, image } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar, v_virtual_list } from "gpui-base";
@@ -9,12 +10,14 @@ import { READ, gitError } from "./git.js";
 import { splitDiffRows, conflictRows } from "./diff-rows.js";
 import { WHOLE_FILE_LINES, languageOf, syntaxColors, tokenizeLine } from "./syntax.js";
 import { diffArgs, rowsFromDiff, untrackedRows, scopeLabel, statusOf, statOf, capRows, rowsWidth, DIFF_LINES, NO_CHANGES } from "./diff-target.js";
-import { DIFF_TABS, DIFF_OPEN, DIFF_LAYOUT, DIFF_FULL, MOD, pendingTarget } from "./place.js";
+import { DIFF_TABS, DIFF_OPEN, DIFF_LAYOUT, DIFF_FULL, WORKTREE, pendingTarget, claimTab, registerDiffTab } from "./place.js";
 import { followFileIcons, fileIcon, isLight } from "./file-icons.js";
 
 const TICK_MS = 300;
 // Edits on disk come in bursts (a save, a checkout): one re-read this long after the first.
 const SETTLE_MS = 400;
+// A restored copy takes the focused tab only this soon after a size report (a hidden copy gets none).
+const SHOWN_MS = 2000;
 const EMPTY = "Pick a file in Changes or in a commit to see its diff.";
 const TEXT = { caption: 11, small: 12, body: 13 };
 const BAR_H = 30, ROW_H = 28;
@@ -28,7 +31,7 @@ const wholeFile = (target) => target?.source === "untracked" || target?.source =
 
 export class DiffView {
   init(cx) {
-    this.ownTab = null;
+    this.ownTab = null; this.born = Date.now(); this.sizedAt = 0; this.loadedAt = 0;
     this.target = null; this.seenAt = 0; this.targetSeq = 0;
     this.rows = []; this.pairedRows = []; this.width = 300; this.splitOffset = 0;
     this.note = null; this.error = null; this.loading = false; this.truncated = false;
@@ -55,25 +58,36 @@ export class DiffView {
   // The space holding our tab.
   spaceId() { return spaces().find((s) => (s.tabs ?? []).some((t) => t.id === this.ownTab))?.id ?? null; }
 
-  // The root's size report: this copy is on screen (a copy in a hidden tab gets no layout), so the
-  // focused tab, when it holds git-graph panes alone, is ours. Right after tab.new or tab.select it is.
-  laidOut() {
+  // Finds our tab (retried from the tick): a copy just opened by openDiff takes the space's one new
+  // git-graph-only tab; a restored copy takes the focused tab while it is on screen (a recent size report).
+  claim() {
     if (this.ownTab) return;
-    const f = focused();
-    const mine = f ? panes().filter((p) => p.tab === f.tab) : [];
-    if (mine.length && mine.every((p) => p.mod === MOD)) this.ownTab = f.tab;
+    const shown = Date.now() - this.sizedAt < SHOWN_MS;
+    this.ownTab = claimTab({
+      spaces: spaces(), panes: panes(), open: shared(DIFF_OPEN), born: this.born,
+      focused: shown ? focused() : null, taken: Object.values(shared(DIFF_TABS) ?? {}),
+    });
   }
 
   // ---- the tick: registration, new targets, refreshes ------------------------------
 
   tick(cx) {
-    if (checking() || !this.ownTab) return;
+    if (checking()) return;
+    this.claim();
+    if (!this.ownTab) return;
     const space = this.spaceId();
     if (!space) return;
     const map = shared(DIFF_TABS) ?? {};
-    if (map[space] !== this.ownTab) setShared(DIFF_TABS, { ...map, [space]: this.ownTab });
-    const entry = pendingTarget(shared(DIFF_OPEN), space, this.seenAt);
-    if (entry?.target) { this.show(entry, cx); return; }
+    const next = registerDiffTab(map, spaces(), space, this.ownTab);
+    if (next) setShared(DIFF_TABS, next);
+    // Only the space's recorded Diff tab takes new targets.
+    if ((next ?? map)[space] === this.ownTab) {
+      const entry = pendingTarget(shared(DIFF_OPEN), space, this.seenAt);
+      if (entry?.target) { this.show(entry, cx); return; }
+    }
+    // The Graph saw this repo's changed files move (the only refresh a remote space gets).
+    const stamp = working(this.target) ? Number(shared(WORKTREE)?.[this.target.root]) || 0 : 0;
+    if (stamp > this.loadedAt) { this.load(cx); return; }
     const changed = shared("git-graph.changed");
     const full = this.full();
     if (changed !== this.seenChange) {
@@ -97,7 +111,7 @@ export class DiffView {
   }
 
   // A working-tree target on this machine re-reads when its repo's files change; a commit never
-  // changes, and a remote space has no folder watch, so those follow the changed stamp alone.
+  // changes, and a remote space has no folder watch, so those follow the changed and worktree stamps.
   syncWatch(cx) {
     const t = this.target;
     const root = working(t) && (t.on ?? null) === null && !checking() ? t.root : null;
@@ -139,7 +153,7 @@ export class DiffView {
     const target = this.target;
     if (!target) return;
     const token = ++this.token;
-    this.shownFull = full;
+    this.shownFull = full; this.loadedAt = Date.now();
     this.loading = true;
     cx.notify();
     cx.spawn(async (cx) => {
@@ -224,7 +238,7 @@ export class DiffView {
   render(_cx) {
     const t = theme();
     const root = v_flex().id("git-graph-diff").size_full().min_h(0).overflow_hidden().bg(t.background).text_color(t.foreground).text_size(TEXT.body)
-      .on_size_change((_size, _cx) => this.laidOut());
+      .on_size_change((_size, _cx) => { this.sizedAt = Date.now(); this.claim(); });
     // No target yet, or its untracked file is gone.
     if (!this.target || this.gone) return root.child(this.notice(EMPTY, t));
     const split = this.layout() === "split";

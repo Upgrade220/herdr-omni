@@ -121,6 +121,7 @@ test("untrackedRows: lines become + rows, NUL is binary, null is gone or unreada
   assert.deepEqual(untrackedRows(null, true), { message: UNREADABLE });
   assert.equal(UNREADABLE, "Cannot read this file. It may be binary or too large.");
   assert.equal(untrackedRows("l\n".repeat(5000)).rows.length, 3000);
+  assert.deepEqual(untrackedRows(""), { message: "Empty file" });
 });
 
 test("a committed binary file has a message, not rows", () => {
