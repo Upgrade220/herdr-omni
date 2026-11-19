@@ -4,25 +4,23 @@
 // Ported from better-changes (https://github.com/munza/herdr-mods, Apache-2.0).
 import { div, image } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { exec, readTextFile, theme, settings, shared, setShared, focused, panes, spaces, run, checking } from "herdr";
+import { exec, readTextFile, watchFolder, theme, settings, shared, setShared, focused, panes, spaces, run, checking } from "herdr";
 import { READ, gitError } from "./git.js";
 import { splitDiffRows, conflictRows } from "./diff-rows.js";
 import { WHOLE_FILE_LINES, languageOf, syntaxColors, tokenizeLine } from "./syntax.js";
-import { diffArgs, rowsFromDiff, untrackedRows, scopeLabel, statusOf, statOf, capRows, DIFF_LINES } from "./diff-target.js";
+import { diffArgs, rowsFromDiff, untrackedRows, scopeLabel, statusOf, statOf, capRows, rowsWidth, DIFF_LINES, NO_CHANGES } from "./diff-target.js";
 import { DIFF_TABS, DIFF_OPEN, DIFF_LAYOUT, DIFF_FULL, MOD, pendingTarget } from "./place.js";
 import { followFileIcons, fileIcon, isLight } from "./file-icons.js";
 
 const TICK_MS = 300;
+// Edits on disk come in bursts (a save, a checkout): one re-read this long after the first.
+const SETTLE_MS = 400;
 const EMPTY = "Pick a file in Changes or in a commit to see its diff.";
 const TEXT = { caption: 11, small: 12, body: 13 };
 const BAR_H = 30, ROW_H = 28;
-// In widths of the code font's size, so a diff looks the same at any terminal size.
-const CHAR_WIDTH = 0.62;
-const GUTTERS = 10;
 const codeFont = () => settings().font_family ?? "JetBrains Mono";
 const codeSize = () => settings().font_size ?? 14;
 const rowHeight = () => Math.round(codeSize() * 1.5);
-const scrollWidth = (rows) => Math.max(300, ...rows.map((row) => ((row.text ?? "").length * CHAR_WIDTH + GUTTERS) * codeSize()));
 const markColor = (t, s) => (s === "A" ? t.ansi2 : s === "D" || s === "!" ? t.ansi1 : t.ansi3);
 const MARK_NAME = { M: "Modified", A: "Added", D: "Deleted", U: "Untracked", "!": "Conflict" };
 const working = (target) => target && target.source !== "commit";
@@ -35,7 +33,8 @@ export class DiffView {
     this.rows = []; this.pairedRows = []; this.width = 300; this.splitOffset = 0;
     this.note = null; this.error = null; this.loading = false; this.truncated = false;
     this.status = "M"; this.stat = { add: 0, del: 0 }; this.conflictCount = 0;
-    this.token = 0; this.shownFull = null;
+    this.token = 0; this.shownFull = null; this.gone = false;
+    this.watchRoot = null; this.watchToken = 0; this.watchHandle = null; this.settling = false;
     this.seenChange = shared("git-graph.changed");
     try {
       const saved = JSON.parse(localStorage.getItem("target"));
@@ -46,7 +45,7 @@ export class DiffView {
       // Nothing saved, or not ours: the empty message shows.
     }
     followFileIcons(this, cx);
-    if (this.target) this.load(cx);
+    if (this.target) { this.load(cx); this.syncWatch(cx); }
     cx.timer.every(TICK_MS, (cx) => this.tick(cx));
   }
 
@@ -92,8 +91,45 @@ export class DiffView {
     try { localStorage.setItem("target", JSON.stringify({ target: entry.target, at: entry.at })); } catch { /* not kept */ }
     const name = String(entry.target.path ?? "").split("/").pop();
     if (name) run("tab.rename", { id: this.ownTab, name });
-    if (!same) { this.targetSeq++; this.splitOffset = 0; this.rows = []; this.pairedRows = []; this.note = null; this.error = null; }
+    if (!same) { this.targetSeq++; this.splitOffset = 0; this.rows = []; this.pairedRows = []; this.note = null; this.error = null; this.gone = false; }
     this.load(cx);
+    this.syncWatch(cx);
+  }
+
+  // A working-tree target on this machine re-reads when its repo's files change; a commit never
+  // changes, and a remote space has no folder watch, so those follow the changed stamp alone.
+  syncWatch(cx) {
+    const t = this.target;
+    const root = working(t) && (t.on ?? null) === null && !checking() ? t.root : null;
+    if (root === this.watchRoot) return;
+    this.watchToken++;
+    this.watchHandle?.cancel();
+    this.watchHandle = null;
+    this.watchRoot = root;
+    if (!root) return;
+    const token = this.watchToken;
+    cx.spawn(async (cx) => {
+      try {
+        while (token === this.watchToken) {
+          this.watchHandle = watchFolder(root);
+          const paths = (await this.watchHandle).map((p) => p.replace(/\\/g, "/"));
+          if (token !== this.watchToken) return;
+          // Git's object store changes on every fetch and gc, never a diff on its own.
+          if (paths.some((p) => !p.includes("/.git/objects/"))) this.settle(cx);
+        }
+      } catch {
+        // No watch here (too large a tree): the changed stamp still refreshes it.
+      }
+    });
+  }
+
+  settle(cx) {
+    if (this.settling) return;
+    this.settling = true;
+    cx.timer.after(SETTLE_MS, (cx) => {
+      this.settling = false;
+      if (working(this.target)) this.load(cx);
+    });
   }
 
   // ---- loading ----------------------------------------------------------------------
@@ -116,7 +152,11 @@ export class DiffView {
       // A newer pick, refresh or toggle started since: its result is the one to show.
       if (token !== this.token) return;
       this.loading = false;
-      this.apply(result);
+      try {
+        this.apply(result);
+      } catch (e) {
+        this.apply({ error: `Can't show this diff: ${e?.message ?? e}`, status: result?.status });
+      }
       cx.notify();
     });
   }
@@ -126,7 +166,10 @@ export class DiffView {
     const { root, on, path } = target;
     if (target.source === "untracked") {
       const text = await readTextFile(`${root}/${path}`, { on });
-      return { ...untrackedRows(text), status: "U" };
+      // readTextFile's null is a missing file or one too large to read: git tells them apart.
+      const exists = text === null
+        && (await exec("git", [...READ, "--literal-pathspecs", "ls-files", "-o", "-z", "--", path], { cwd: root, on })).stdout.length > 0;
+      return { ...untrackedRows(text, exists), status: "U" };
     }
     if (target.source === "conflict") return { ...(await this.readConflict(target)), status: "!" };
     const args = diffArgs(target, full);
@@ -141,6 +184,8 @@ export class DiffView {
     const stages = await exec("git", [...READ, "--literal-pathspecs", "ls-files", "-u", "-z", "--", path], { cwd: root, on });
     if (stages.code !== 0) return { error: gitError(stages) };
     const present = new Set(stages.stdout.split("\0").filter(Boolean).map((entry) => entry.split(/\s+/)[2]));
+    // Resolved and staged since: nothing is in conflict any more.
+    if (!present.size) return { message: NO_CHANGES };
     if (!present.has("2")) return { message: "Conflict: deleted on your side, changed on the incoming side." };
     if (!present.has("3")) return { message: "Conflict: changed on your side, deleted on the incoming side." };
     const text = await readTextFile(`${root}/${path}`, { on });
@@ -153,6 +198,7 @@ export class DiffView {
   }
 
   apply(result) {
+    this.gone = Boolean(result.gone);
     this.error = result.error ?? null;
     this.note = result.message ?? null;
     this.status = result.status ?? statusOf(this.target, "");
@@ -164,12 +210,13 @@ export class DiffView {
     // Git's counts for a conflict are of the markers, so they would mislead.
     this.stat = result.conflicts ? { add: 0, del: 0 } : statOf(result.rows);
     if (result.paired) {
-      this.rows = result.rows; this.pairedRows = result.paired; this.truncated = false;
+      const inline = capRows(result.rows), paired = capRows(result.paired);
+      this.rows = inline.rows; this.pairedRows = paired.rows; this.truncated = inline.truncated || paired.truncated;
     } else {
       const capped = capRows(result.rows);
       this.rows = capped.rows; this.pairedRows = splitDiffRows(capped.rows); this.truncated = capped.truncated;
     }
-    this.width = scrollWidth(this.rows);
+    this.width = rowsWidth(this.rows, codeSize());
   }
 
   // ---- drawing ----------------------------------------------------------------------
@@ -178,7 +225,8 @@ export class DiffView {
     const t = theme();
     const root = v_flex().id("git-graph-diff").size_full().min_h(0).overflow_hidden().bg(t.background).text_color(t.foreground).text_size(TEXT.body)
       .on_size_change((_size, _cx) => this.laidOut());
-    if (!this.target) return root.child(this.notice(EMPTY, t));
+    // No target yet, or its untracked file is gone.
+    if (!this.target || this.gone) return root.child(this.notice(EMPTY, t));
     const split = this.layout() === "split";
     root.child(this.header(t));
     if (this.error || this.note) root.child(this.message(this.error || this.note, t, Boolean(this.error)));

@@ -21,9 +21,12 @@ export function diffArgs(target, full = false) {
   }
 }
 
-// An untracked file is all additions.
-export function untrackedRows(text) {
-  if (text == null) return { message: NO_CHANGES };
+export const UNREADABLE = "Cannot read this file. It may be binary or too large.";
+
+// An untracked file is all additions. text null: { gone } when the file no longer exists,
+// else (exists: it is there but too large or not text) a message saying it can't be read.
+export function untrackedRows(text, exists = false) {
+  if (text == null) return exists ? { message: UNREADABLE } : { gone: true };
   if (text.includes("\0")) return { message: BINARY };
   const lines = text.split("\n");
   if (lines.length && lines[lines.length - 1] === "") lines.pop();
@@ -73,4 +76,13 @@ export function capRows(rows) {
   const truncated = rows.length > DIFF_LINES || rows.some(long);
   if (!truncated) return { rows, truncated };
   return { rows: rows.slice(0, DIFF_LINES).map((r) => (long(r) ? { ...r, text: `${r.text.slice(0, LINE_LENGTH)}…` } : r)), truncated };
+}
+
+// How wide the rows' text runs, in pixels of a `size` code font: at least 300. A loop, since a
+// spread of every row into Math.max overflows the stack on a long file.
+const CHAR_WIDTH = 0.62, GUTTERS = 10;
+export function rowsWidth(rows, size) {
+  let width = 300;
+  for (const r of rows) width = Math.max(width, ((r.text ?? "").length * CHAR_WIDTH + GUTTERS) * size);
+  return width;
 }

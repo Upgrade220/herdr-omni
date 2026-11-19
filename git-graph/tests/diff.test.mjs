@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { diffRows, splitDiffRows, conflictRows } from "../mods/git-graph/diff-rows.js";
 import { languageOf, tokenizeLine } from "../mods/git-graph/syntax.js";
-import { diffArgs, untrackedRows, rowsFromDiff, scopeLabel, statusOf, statOf, capRows, DIFF_LINES } from "../mods/git-graph/diff-target.js";
+import { diffArgs, untrackedRows, rowsFromDiff, scopeLabel, statusOf, statOf, capRows, DIFF_LINES, rowsWidth, UNREADABLE } from "../mods/git-graph/diff-target.js";
 
 const env = { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t", GIT_CONFIG_GLOBAL: "/dev/null" };
 const git = (cwd, args) => { const r = spawnSync("git", args, { cwd, env, encoding: "utf8" }); assert.equal(r.status, 0, `${args.join(" ")}: ${r.stderr}`); return r.stdout; };
@@ -113,11 +113,13 @@ test("a staged deletion shows only - rows", () => {
   assert.equal(kinds(rows), "@--");
 });
 
-test("untrackedRows: lines become + rows, NUL is binary, null is empty", () => {
+test("untrackedRows: lines become + rows, NUL is binary, null is gone or unreadable", () => {
   const { rows } = untrackedRows("x\ny\n");
   assert.deepEqual(rows, [{ kind: "+", next: 1, text: "x" }, { kind: "+", next: 2, text: "y" }]);
   assert.deepEqual(untrackedRows("a\0b"), { message: "Binary file, no text diff" });
-  assert.deepEqual(untrackedRows(null), { message: "No changes in this file" });
+  assert.deepEqual(untrackedRows(null), { gone: true });
+  assert.deepEqual(untrackedRows(null, true), { message: UNREADABLE });
+  assert.equal(UNREADABLE, "Cannot read this file. It may be binary or too large.");
   assert.equal(untrackedRows("l\n".repeat(5000)).rows.length, 3000);
 });
 
@@ -211,4 +213,11 @@ test("capRows keeps the first DIFF_LINES rows and shortens long lines", () => {
   assert.equal(long.rows[0].old, 1);
   const few = [{ kind: "+", next: 1, text: "z" }];
   assert.deepEqual(capRows(few), { rows: few, truncated: false });
+});
+
+test("rowsWidth: the widest row in code-font widths, at least 300, for any number of rows", () => {
+  assert.equal(rowsWidth([], 14), 300);
+  assert.equal(rowsWidth([{ text: "x".repeat(100) }, { text: "y" }], 10), (100 * 0.62 + 10) * 10);
+  const many = Array.from({ length: 300000 }, () => ({ text: "z" }));
+  assert.equal(rowsWidth(many, 14), 300);
 });
