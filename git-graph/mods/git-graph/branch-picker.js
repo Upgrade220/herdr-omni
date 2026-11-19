@@ -17,22 +17,32 @@ export class BranchPicker {
     this.filter = InputState.new({ placeholder: "Switch to or create a branch" });
     this.filter.on("change", (_e, cx) => { this.query = this.filter.value(); cx.notify(); });
     this.filter.on("submit", (_e, cx) => {
+      // Still loading: an existing name would read as new and `switch -c` would fail.
+      if (this.loading) return;
       const q = this.query.trim(), match = this.list.find((b) => b.name === q);
       match ? this.pick(match, cx) : this.create(q, cx);
     });
   }
 
+  // Another repository, or another branch checked out (from a terminal, say), closes it:
+  // its list and its "current" were read for the old one, and a pending load is dropped.
+  sync() {
+    const o = this.owner;
+    if (this.open && (this.root !== o.root || this.current !== o.current)) { this.open = false; this.token = null; this.loading = false; }
+  }
+
   // Open for the repository on show, with the header's branch bubble there to hang from.
   shown() {
+    this.sync();
     const o = this.owner;
-    return this.open && this.root === o.root && (o.state === "ready" || o.state === "empty") && Boolean(o.current || o.head);
+    return this.open && (o.state === "ready" || o.state === "empty") && Boolean(o.current || o.head);
   }
 
   toggle(cx) {
     if (this.shown()) { this.close(cx); return; }
     const o = this.owner, root = o.root, on = o.on, current = o.current;
     if (!root) return;
-    this.open = true; this.root = root; this.list = []; this.loading = true; this.query = ""; this.filter.set_value("");
+    this.open = true; this.root = root; this.current = current; this.list = []; this.loading = true; this.query = ""; this.filter.set_value("");
     const token = this.token = {};
     cx.spawn(async (cx) => {
       let list = [], error = null;
