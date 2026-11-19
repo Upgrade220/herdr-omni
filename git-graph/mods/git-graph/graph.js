@@ -11,6 +11,7 @@ import { perform, openDialog, showChanges } from "./act.js";
 import { icon } from "./menu.js";
 import { available, check, openUpdate, newer } from "./update.js";
 import { ChangesView, TAB_H } from "./changes-view.js";
+import { BranchPicker } from "./branch-picker.js";
 import { depthOf, unsearched, findArgs, parseFound, REPO_STATUS, LATEST_TAG, FETCH, REMOTES, fetchable, parseRepoStatus, parseRemotes, webUrl, syncOf } from "./repos.js";
 
 // The frame the shown tab's panes are drawn in, so the panel beside them takes the
@@ -160,6 +161,8 @@ export class Graph {
     this.handle = cx.focus_handle();
     // The Changes tab: fed each status read, drawn when its tab shows.
     this.changes = new ChangesView(); this.changes.init(this, cx);
+    // The branch picker, dropped from the header's branch.
+    this.branchPicker = new BranchPicker(); this.branchPicker.init(this, cx);
     this.reset();
     this.refresh(cx);
     cx.timer.after(1500, (cx) => this.warm(cx));
@@ -685,7 +688,8 @@ export class Graph {
         .child(h_flex().id("graph-repository").h(22).px(7).gap(5).min_w(0).items_center().rounded(6).cursor_pointer()
           .bg(this.picking ? t.selected : t.raised).text_color(t.foreground).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.togglePicker(cx))
           .child(svg(icon("folder")).size(12).flex_none()).child(div().min_w(0).truncate().text_size(11.5).font_semibold().child(repo.name))))
-      .when(ready && Boolean(where), (e) => e.child(h_flex().h(22).px(7).gap(5).min_w(0).items_center().rounded(6).bg(t.accent + "26").text_color(t.accent)
+      .when(ready && Boolean(where), (e) => e.child(h_flex().id("graph-branch").h(22).px(7).gap(5).min_w(0).items_center().rounded(6).bg(t.accent + "26").text_color(t.accent)
+        .cursor_pointer().hover((s) => s.bg(t.accent + "40")).on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click((_e, cx) => this.branchPicker.toggle(cx))
         .child(svg(icon(this.current ? "branch" : "commit")).size(12).flex_none()).child(div().min_w(0).truncate().text_size(11.5).font_semibold().child(where))))
       .when(this.state === "workspace", (e) => e.child(div().flex_none().text_size(11.5).text_color(t.dim).child(count(ws.repos.length, "repo"))))
       .child(div().flex_1())
@@ -827,6 +831,24 @@ export class Graph {
       .child(Scrollbar.vertical(this.listId).viewport_from_layout().absolute().inset_0());
   }
 
+  // The details' full hash: a click copies it, and "Copied" shows for a moment.
+  hashLine(hash, t, mono) {
+    const copied = this.copied === hash;
+    return h_flex().id("graph-copy-hash").gap(8).text_size(11.5).cursor_pointer().tooltip("Copy the full hash")
+      .on_click((_e, cx) => this.copyHash(hash, cx))
+      .child(div().w(64).flex_none().text_color(t.dim).child("Commit"))
+      .child(div().min_w(0).truncate().font_family(mono).text_color(t.accent).child(hash))
+      .child(div().flex_none().text_color(copied ? t.ansi2 : t.dim).child(copied ? "Copied" : "⧉"));
+  }
+
+  copyHash(hash, cx) {
+    cx.write_to_clipboard(hash);
+    const at = this.copiedAt = Date.now();
+    this.copied = hash;
+    cx.timer.after(1500, (cx) => { if (this.copiedAt === at) { this.copied = null; cx.notify(); } });
+    cx.notify();
+  }
+
   detailsPane(t, mono) {
     const commit = this.commits[this.index.get(this.selected)], d = this.details;
     if (!commit) return div();
@@ -865,7 +887,7 @@ export class Graph {
     // The history already has the header: it shows at once, and what git adds lands below it.
     const head = commit.uncommitted ? body : body
       .child(div().font_semibold().child(commit.subject))
-      .child(meta("Commit", commit.hash, t.accent).font_family(mono))
+      .child(this.hashLine(commit.hash, t, mono))
       .child(meta("Parents", commit.parents.map((p) => p.slice(0, 8)).join(", ") || "none"))
       .child(meta("Author", `${commit.author} <${commit.email}>`))
       .child(meta("Date", `${stamp(commit.time)} · ${ago(commit.time)}`));
@@ -935,6 +957,7 @@ export class Graph {
       .on_mouse_up("left", (_e, cx) => this.endDrag(cx))
       .on_hover((hovered, cx) => { if (!hovered) this.endDrag(cx); })
       .on_key_down((e, cx) => {
+        if (e.key === "escape" && this.branchPicker.escape()) { cx.stop_propagation(); cx.notify(); return; }
         if (e.key === "escape" && this.changes.view() === "changes" && this.changes.escape()) { cx.stop_propagation(); cx.notify(); return; }
         if (e.key !== "escape" || !(this.selected || this.opened)) return;
         // Esc closes the dropdown, a diff, then the details, then goes back to the Manygit list.
@@ -950,6 +973,7 @@ export class Graph {
         if (wide !== this.wide || graphMax !== this.graphMax || resized) { this.wide = wide; this.graphMax = graphMax; cx.notify(); }
       })
       .child(this.header(t))
+      .when(this.branchPicker.shown(), (e) => e.child(this.branchPicker.render(t)))
       .child(this.changes.sideTabs(t))
       .when(Boolean(this.picking && this.workspace && this.opened), (e) => e.child(this.picker(t)))
       .when(changesTab, (e) => e.child(this.state === "workspace" || this.root ? this.changes.render(t, mono) : this.empty(t)))
