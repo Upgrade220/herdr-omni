@@ -22,12 +22,15 @@ test('diffSource: untracked, staged only, else unstaged', () => {
   assert.equal(D.diffSource({ mark: 'M', staged: false, untracked: false }), 'unstaged');
   assert.equal(D.diffSource({ mark: 'A', staged: false, untracked: false }), 'unstaged', 'added, then changed again');
   assert.equal(D.diffSource({}), 'unstaged');
+  assert.equal(D.diffSource({ mark: 'U', staged: false, untracked: false }), 'conflict', 'read whole, as git-graph\'s lists do');
+  assert.equal(D.diffSource({ mark: 'U', staged: true, untracked: false }), 'conflict');
 });
 
 test('diffTarget: by path from the Git root, in the shape the Diff tab reads', () => {
   const t = { path: '/repo/src/main.go', root: '/repo/src', on: null, top: '/repo', relative: 'src/main.go', staged: true, untracked: false };
   assert.deepEqual(D.diffTarget(t), { root: '/repo', on: null, path: 'src/main.go', source: 'staged' });
   assert.equal(D.diffTarget({ ...t, top: null }), null, 'not in a repo');
+  assert.equal(D.diffTarget({ ...t, staged: false, mark: 'U' }).source, 'conflict');
   assert.equal(D.diffTarget({ ...t, on: 'box', untracked: true, staged: false }).on, 'box');
 });
 

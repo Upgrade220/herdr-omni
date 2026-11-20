@@ -669,6 +669,7 @@ test('right-click opens a menu at the pointer for that row', async () => {
   assert.equal(spec.props.target.path, '/repo/b.md');
   assert.equal(spec.props.target.changed, true);
   assert.equal(spec.props.target.relative, 'b.md');
+  assert.equal(spec.props.target.mark, 'M', 'the menu knows the status letter, so a conflict shows as one');
 });
 
 test('a file\'s menu opens, copies, reveals and shows a diff, then closes', async () => {

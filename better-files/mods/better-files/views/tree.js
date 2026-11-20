@@ -40,6 +40,7 @@ export const treeMethods = {
       changed: Boolean(change),
       staged: Boolean(change?.staged),
       untracked: Boolean(change?.untracked),
+      mark: change?.mark ?? null,
     };
   },
 

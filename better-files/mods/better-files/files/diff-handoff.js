@@ -16,10 +16,11 @@ function liveDiffTab(map, spaces, spaceId) {
   return id && tabsOf(spaces, spaceId).some((t) => t.id === id) ? id : null;
 }
 
-// Where a diff of a file looks: an untracked file is read whole, a change only in the index is
-// staged, and anything else is in the working tree.
+// Where a diff of a file looks: an untracked file is read whole, a conflicted one (mark U) too, as
+// git-graph's lists open it; a change only in the index is staged, and anything else is in the working tree.
 export function diffSource(change) {
   if (change?.untracked) return "untracked";
+  if (change?.mark === "U") return "conflict";
   if (change?.staged) return "staged";
   return "unstaged";
 }
