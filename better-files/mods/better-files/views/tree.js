@@ -77,7 +77,7 @@ export const treeMethods = {
     const marked = relative === this.cursor && this.showsCursor();
     return h_flex()
       .id(`files-row-${relative}`)
-      .h(26)
+      .h(this.embedded ? 28 : 26)
       .flex_none()
       .pl(8 + depth * INDENT)
       .pr(8)
@@ -87,7 +87,7 @@ export const treeMethods = {
       .rounded(7)
       .border_1()
       .border_color(marked ? t.accent : CLEAR)
-      .text_size(TEXT.small)
+      .text_size(this.embedded ? TEXT.body : TEXT.small)
       .cursor_pointer()
       .when(selected, (el) => el.bg(t.selected))
       .when(!selected, (el) => el.hover((s) => s.bg(t.hover)))
@@ -213,9 +213,8 @@ export const treeMethods = {
       );
   },
 
-  sidebarView() {
-    const t = theme();
-    const failure = this.error ?? this.treeError ?? shared("better-files.error");
+  // munza's look: a bordered panel with a title row, then Tree | Recent and the branch line.
+  panelTop(t) {
     const root = Panel({ id: "better-files" }).child(
       PanelHeader()
         .child(
@@ -227,28 +226,81 @@ export const treeMethods = {
             .gap(6)
             .items_center()
             .child(div().flex_none().font_medium().child("Files"))
-            // herdr-omni: the header also holds Tree | Recent and the Git switch, so in a narrow
-            // sidebar the folder badge shrinks and cuts off instead of running under them.
+            // herdr-omni: in a narrow sidebar the folder badge shrinks and cuts off instead of
+            // running under the buttons.
             .when(Boolean(folderLabel(this.root)), (el) =>
               el.child(Badge(folderLabel(this.root)).flex_shrink_1().min_w(0).truncate()),
             ),
         )
-        .child(this.gitToggle(t))
-        .when(Boolean(this.root && !this.on), (el) => el.child(this.folderMenu(t)))
-        .child(
-          IconButton({
-            id: "files-refresh",
-            icon: "refresh",
-            label: "Refresh",
-            spinning: Boolean(this.loading),
-            onClick: (cx) => this.refresh(cx),
-          }),
-        ),
+        .children(this.headerButtons(t)),
     );
     // herdr-omni: Tree | Recent get a line of their own, so a narrow sidebar never crowds them.
     root.child(this.tabsRow(t));
     const summary = this.summaryLine(t);
     if (summary) root.child(summary);
+    return root;
+  },
+
+  // herdr-omni, props.embedded: inside Better Sidebar's Files tab it looks like the Spaces and
+  // Agents lists beside it: flat on the sidebar's colour, no panel border or title (the tab
+  // names it), Tree | Recent and the buttons on one line, the folder on the line under them.
+  embeddedTop(t) {
+    const root = v_flex()
+      .id("better-files")
+      .size_full()
+      .min_w(0)
+      .min_h(0)
+      .overflow_hidden()
+      .bg(t.chrome)
+      .text_color(t.foreground)
+      .text_size(TEXT.body);
+    root.child(
+      h_flex()
+        .id("files-toolbar")
+        .h(34)
+        .flex_none()
+        .px(8)
+        .gap(2)
+        .items_center()
+        .child(this.headerTabs())
+        .child(div().flex_1())
+        .children(this.headerButtons(t)),
+    );
+    const summary = this.summaryLine(t);
+    if (summary) root.child(summary);
+    else if (folderLabel(this.root))
+      root.child(
+        h_flex()
+          .id("files-folder")
+          .h(26)
+          .flex_none()
+          .px(14)
+          .items_center()
+          .text_size(TEXT.caption)
+          .text_color(t.muted)
+          .child(div().min_w(0).truncate().child(folderLabel(this.root))),
+      );
+    return root;
+  },
+
+  headerButtons(t) {
+    return [
+      this.gitToggle(t),
+      ...(this.root && !this.on ? [this.folderMenu(t)] : []),
+      IconButton({
+        id: "files-refresh",
+        icon: "refresh",
+        label: "Refresh",
+        spinning: Boolean(this.loading),
+        onClick: (cx) => this.refresh(cx),
+      }),
+    ];
+  },
+
+  sidebarView() {
+    const t = theme();
+    const failure = this.error ?? this.treeError ?? shared("better-files.error");
+    const root = this.embedded ? this.embeddedTop(t) : this.panelTop(t);
     const recent = this.tab === "recent";
     if (this.root && !recent) root.child(this.filterRow(t));
     if (failure) root.child(Message(failure, true));

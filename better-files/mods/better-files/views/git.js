@@ -87,10 +87,13 @@ export const gitMethods = {
       .px(14)
       .gap(8)
       .items_center()
-      .border_b(1)
-      .border_color(t.border)
+      // herdr-omni, embedded in the sidebar: no rule under it, and the folder leads the line.
+      .when(!this.embedded, (el) => el.border_b(1).border_color(t.border))
       .text_size(TEXT.caption)
       .text_color(t.muted)
+      .when(Boolean(this.embedded && this.root), (el) =>
+        el.child(div().flex_none().max_w(140).truncate().child(this.root.split("/").pop() || this.root)),
+      )
       .child(Icon("branch", 12))
       .child(div().flex_1().min_w(0).truncate().child(s.branch))
       .when(Boolean(s.ahead || s.behind), (el) => el.child(div().flex_none().child(`↑${s.ahead} ↓${s.behind}`)))

@@ -66,8 +66,8 @@ export const filterMethods = {
       .py(8)
       .gap(6)
       .items_center()
-      .border_b(1)
-      .border_color(t.border)
+      // herdr-omni: embedded in the sidebar, no rule under the filter.
+      .when(!this.embedded, (el) => el.border_b(1).border_color(t.border))
       .on_key_down((event, cx) => {
         if (!text) return;
         if (event.keystroke === "escape") this.clearFilter(cx);

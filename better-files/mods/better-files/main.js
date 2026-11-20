@@ -41,6 +41,8 @@ class BetterFiles extends View {
   init(given, cx) {
     const p = props() ?? given ?? {};
     this.mode = p.mode ?? "sidebar";
+    // herdr-omni: drawn like the lists beside it when it sits in Better Sidebar's Files tab.
+    this.embedded = p.embedded === true;
     if (this.mode === "menu") {
       this.menuTarget = p.target;
       this.menuSpace = spaces().find((s) => s.active)?.id;
