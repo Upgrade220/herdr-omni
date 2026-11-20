@@ -22,6 +22,19 @@ export const gitMethods = {
     return h_flex().id("files-tabs").flex_none().gap(2).child(tab("tree", "Tree")).child(tab("recent", "Recent"));
   },
 
+  // The second header line: Tree | Recent under the title.
+  tabsRow(t) {
+    return h_flex()
+      .id("files-tabs-row")
+      .h(34)
+      .flex_none()
+      .px(10)
+      .items_center()
+      .border_b(1)
+      .border_color(t.border)
+      .child(this.headerTabs());
+  },
+
   showTab(id, cx) {
     this.tab = id;
     // The Recent list asks once which of its files are still there.

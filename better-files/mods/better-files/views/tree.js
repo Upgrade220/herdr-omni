@@ -233,7 +233,6 @@ export const treeMethods = {
               el.child(Badge(folderLabel(this.root)).flex_shrink_1().min_w(0).truncate()),
             ),
         )
-        .child(this.headerTabs())
         .child(this.gitToggle(t))
         .when(Boolean(this.root && !this.on), (el) => el.child(this.folderMenu(t)))
         .child(
@@ -246,6 +245,8 @@ export const treeMethods = {
           }),
         ),
     );
+    // herdr-omni: Tree | Recent get a line of their own, so a narrow sidebar never crowds them.
+    root.child(this.tabsRow(t));
     const summary = this.summaryLine(t);
     if (summary) root.child(summary);
     const recent = this.tab === "recent";
