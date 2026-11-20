@@ -17,7 +17,8 @@ import {
   resolvePath,
   viewable,
 } from "../files/model.js";
-import { WHOLE_FILE_LINES, fenceLanguage, highlightLines, languageOf as lexerLanguage, syntaxColors, tokenizeLine } from "../syntax.js";
+import { WHOLE_FILE_LINES, fenceLanguage, highlightLines, languageOf as lexerLanguage, tokenizeLine } from "../syntax.js";
+import { codeColorsFrom } from "../theme-code.js";
 import { viewerEntries } from "../actions/open.js";
 import { BUSY, pickCopyImage, pickRm } from "../files/shell.js";
 import { editorId, foundEditors } from "../actions/outside.js";
@@ -352,7 +353,7 @@ export const viewerMethods = {
       : row.hunk
         ? { added: t.ansi2, changed: open ? t.ansi2 : t.ansi3 }[row.hunk.kind]
         : null;
-    const SYNTAX = syntaxColors(t);
+    const SYNTAX = codeColorsFrom(t, this.themeCode);
     const runs = old ? [{ text: row.text, kind: "old" }] : this.rowRuns(row, lineRuns);
     return h_flex()
       .id(`viewer-${row.key}`)
@@ -594,7 +595,7 @@ export const viewerMethods = {
   // the lexer's colours, the language at the top left and a copy button at the top right.
   previewCode(block, i) {
     const t = theme();
-    const SYNTAX = syntaxColors(t);
+    const SYNTAX = codeColorsFrom(t, this.themeCode);
     block.runs ??= codeRuns(block);
     const widest = block.text.split("\n").reduce((n, line) => Math.max(n, line.length), 0);
     const copied = this.copiedCode === i;

@@ -8,7 +8,8 @@ import { h_flex, v_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { exec, readTextFile, watchFolder, theme, settings, shared, setShared, focused, panes, spaces, run, checking, props } from "herdr";
 import { READ, gitError } from "./git.js";
 import { splitDiffRows, conflictRows } from "./diff-rows.js";
-import { WHOLE_FILE_LINES, languageOf, syntaxColors, tokenizeLine } from "./syntax.js";
+import { WHOLE_FILE_LINES, languageOf, tokenizeLine } from "./syntax.js";
+import { codeColorsFrom, followThemeCode } from "./theme-code.js";
 import { diffArgs, rowsFromDiff, untrackedRows, scopeLabel, statusOf, statOf, capRows, rowsWidth, DIFF_LINES, NO_CHANGES, targetFromProps } from "./diff-target.js";
 import { DIFF_TABS, DIFF_OPEN, DIFF_LAYOUT, DIFF_FULL, WORKTREE, pendingTarget, claimTab, registerDiffTab } from "./place.js";
 import { followFileIcons, fileIcon, isLight } from "./file-icons.js";
@@ -31,6 +32,7 @@ const wholeFile = (target) => target?.source === "untracked" || target?.source =
 
 export class DiffView {
   init(cx) {
+    followThemeCode(this, cx);
     this.ownTab = null; this.born = Date.now(); this.sizedAt = 0; this.loadedAt = 0;
     this.target = null; this.seenAt = 0; this.targetSeq = 0;
     this.rows = []; this.pairedRows = []; this.width = 300; this.splitOffset = 0;
@@ -432,7 +434,7 @@ export class DiffView {
   codeText(row, color, t) {
     const runs = row ? this.runsOf(row) : null;
     if (!runs) return div().text_color(color).child(row?.text || " ");
-    const colors = syntaxColors(t);
+    const colors = codeColorsFrom(t, this.themeCode);
     return h_flex().children(runs.map((r) => div().flex_none().whitespace_nowrap().text_color(colors[r.kind] ?? t.foreground).child(r.text || " ")));
   }
 }

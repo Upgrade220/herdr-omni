@@ -1,0 +1,27 @@
+{
+  "background": "#292a30",
+  "foreground": "#dfdfe0",
+  "selection": "#646f83",
+  "cursor": "#ffffff",
+  "ansi": [
+    "#414453",
+    "#ff8170",
+    "#78c2b3",
+    "#d9c97c",
+    "#6699ff",
+    "#ff7ab2",
+    "#6bdfff",
+    "#dfdfe0",
+    "#7f8c98",
+    "#ff8170",
+    "#acf2e4",
+    "#ffa14f",
+    "#4eb0cc",
+    "#b281eb",
+    "#dabaff",
+    "#ffffff"
+  ],
+  "colors": {
+    "dim": "#7f8c98"
+  }
+}

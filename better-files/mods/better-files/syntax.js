@@ -175,19 +175,26 @@ export function fenceLanguage(word) {
 }
 
 // The colour of each kind of run, from the theme, close to One Dark's choices.
+// herdr-omni: which theme colour each kind of code is drawn in. Only theme colours: a theme
+// recolours code through its own palette. The pairing follows Xcode's (strings red, numbers
+// yellow, types cyan, keywords pink), so themes/xcode-dark.json, which puts Xcode's colours
+// in these slots, looks like Xcode. Kept identical in git-graph and better-files; a test
+// checks.
+export const CODE_COLORS = {
+  keyword: "ansi5", // magenta: if, return, class, import
+  string: "ansi1", // red: "text", 'text', `text`
+  number: "ansi3", // yellow: 42, 0xff, 1.5
+  type: "ansi6", // cyan: type and class names (Capitalised words, built-in types)
+  function: "ansi2", // green: functions being called or defined, decorators
+  constant: "ansi14", // bright cyan: true, null, CONSTANT_NAMES
+  attribute: "ansi11", // bright yellow: HTML, JSX and Vue attributes
+  property: "ansi13", // bright magenta: keys in JSON, YAML, TOML and env files
+  tag: "ansi5", // magenta: HTML/JSX/Vue tags, like keywords
+  comment: "dim", // the theme's dim: // and /* */ comments
+};
+
 export function syntaxColors(t) {
-  return {
-    keyword: t.ansi5,
-    string: t.ansi2,
-    comment: t.dim,
-    number: t.ansi1,
-    constant: t.ansi6,
-    function: t.ansi4,
-    type: t.ansi3,
-    tag: t.ansi1,
-    attribute: t.ansi3,
-    property: t.ansi1,
-  };
+  return Object.fromEntries(Object.entries(CODE_COLORS).map(([kind, color]) => [kind, t[color]]));
 }
 
 // A language it doesn't know is left plain: guessing it as code coloured prose.

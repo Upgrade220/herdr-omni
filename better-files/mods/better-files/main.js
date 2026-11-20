@@ -33,6 +33,7 @@ import { viewerMethods } from "./views/viewer.js";
 import { contextMenuMethods } from "./views/context-menu.js";
 import { gitMethods } from "./views/git.js";
 import { recentMethods } from "./views/recent.js";
+import { followThemeCode } from "./theme-code.js";
 
 const DEFAULT_SETTINGS = { refresh: { tree: "10s", file: "2s" }, editors: [], gutter: true, markdown: "preview" };
 const SYNC_MS = 300;
@@ -60,6 +61,7 @@ class BetterFiles extends View {
   }
 
   initViewer(p, cx) {
+    followThemeCode(this, cx);
     this.viewerId = p.viewer;
     this.viewerSpace = p.space;
     this.viewerFile = p.file;
