@@ -383,8 +383,53 @@ test("the switcher's Files shows the Files block; Agents shows the lists on that
   assert.equal(sharedValues["better-sidebar.tab"], "agents");
 });
 
-test("the files key shows Files, then gives the Files block the keyboard", async () => {
-  const { sw, ran } = await switcher({ tree: withFiles(), sharedValues: {} });
-  sw.command("files");
+// A cx whose sleep counts, and may flip the stack to Files after some sleeps.
+const sleeper = (tree, flipAfter = Infinity) => {
+  const cx = { slept: 0, notify() {}, sleep: async () => { if (++cx.slept >= flipAfter) tree.children[0].active = "files"; } };
+  return cx;
+};
+
+test("the files key shows Files, waits until the stack shows it, then gives it the keyboard", async () => {
+  const tree = withFiles();
+  const { sw, ran } = await switcher({ tree, sharedValues: {} });
+  const cx = sleeper(tree, 2);
+  await sw.command("files", cx);
   assert.deepEqual(ran.map(([name]) => name), ["layout.select", "better-files.focus"]);
+  // Two looks until it shows, then one tick for the copy to start.
+  assert.equal(cx.slept, 3);
+});
+
+test("the files key gives up quietly if Files never shows", async () => {
+  const tree = withFiles();
+  const { sw, ran } = await switcher({ tree, sharedValues: {} });
+  const cx = sleeper(tree);
+  await sw.command("files", cx);
+  assert.deepEqual(ran.map(([name]) => name), ["layout.select"]);
+  assert.equal(cx.slept, 5);
+});
+
+test("folding to the rail with Files showing shows the lists", async () => {
+  const { ran, context } = await harness({ tree: withFiles(268, "files") });
+  context.toggleSidebar();
+  assert.deepEqual(JSON.parse(JSON.stringify(ran)).map(([name, args]) => [name, args.child ?? args.px]), [
+    ["layout.resize", 76],
+    ["layout.select", "spaces"],
+  ]);
+});
+
+test("the sidebar dragged narrow with Files showing shows the lists", async () => {
+  const resize = async (active, width) => {
+    const { sw, ran, cx } = await switcher({ tree: withFiles(268, active) });
+    find(sw.render(), "better-sidebar-switcher").attributes.on_size_change[0]({ width }, cx);
+    return JSON.parse(JSON.stringify(ran));
+  };
+  assert.deepEqual(await resize("files", 100), [["layout.select", { stack: "sidebar-body", child: "spaces" }]]);
+  assert.deepEqual(await resize("files", 268), []);
+  assert.deepEqual(await resize("spaces", 100), []);
+});
+
+test("on the rail the switcher draws no tabs", async () => {
+  const { sw } = await switcher({ tree: withFiles(44, "files") });
+  const drawn = ids(sw.render());
+  assert.deepEqual(drawn, ["better-sidebar-switcher"]);
 });

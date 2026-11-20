@@ -5,7 +5,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { agents, focused, theme, setAgentOrder, props, layout, shared, setShared } from "herdr";
 import { Spaces } from "./spaces.js";
 import { Agents } from "./agents.js";
-import { TEXT, Badge, Rail, IconButton } from "./ui.js";
+import { TEXT, Rail, IconButton, TabChip } from "./ui.js";
 import { TAB_KEY, TABS, readTab, hasFilesStack } from "./switcher-state.js";
 import { showFiles } from "./switcher.js";
 import { Folds, SpaceTree, Chevron, StatusDot, mainNodeRow, mainNodeId, mostUrgent } from "./folds.js";
@@ -177,24 +177,7 @@ export class Lists {
   // Tabs side by side from the left, the picked one filled.
   tabBar(t, view) {
     const tab = (id, label, count) =>
-      h_flex()
-        .id(`lists-tab-${id}`)
-        .px(10)
-        .h(24)
-        .gap(5)
-        .justify_center()
-        .items_center()
-        .rounded(6)
-        .cursor_pointer()
-        .text_size(TEXT.label)
-        .font_medium()
-        .text_color(this.tab === id ? t.foreground : t.dim)
-        .when(this.tab === id, (el) => el.bg(t.selected))
-        .when(this.tab !== id, (el) => el.hover((s) => s.bg(t.hover).text_color(t.foreground)))
-        .on_click((_e, cx) => this.pick(id, cx))
-        .child(label)
-        // The count badge the group headers use.
-        .when(count !== null, (el) => el.child(Badge(count)));
+      TabChip({ id: `lists-tab-${id}`, label, count, on: this.tab === id, onClick: (cx) => this.pick(id, cx) });
     return h_flex()
       .px(8)
       .pt(6)

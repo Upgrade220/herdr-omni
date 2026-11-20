@@ -19,6 +19,10 @@ export function hasFilesStack(tree) {
   return Boolean(findNode(tree, STACK)?.children?.some((c) => c.id === FILES));
 }
 
+export function filesShowing(tree) {
+  return findNode(tree, STACK)?.active === FILES;
+}
+
 export function switcherState(tree, listsTab) {
-  return findNode(tree, STACK)?.active === FILES ? "files" : listsTab;
+  return filesShowing(tree) ? "files" : listsTab;
 }

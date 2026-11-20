@@ -20,6 +20,7 @@ import {
 } from "herdr";
 import { findNode } from "./find-node.js";
 import { tabLabel } from "./tab-label.js";
+import { STACK, LISTS, filesShowing } from "./switcher-state.js";
 import { TEXT, Icon, IconButton, GroupHeader, Menu, MenuLabel, MenuOption } from "./ui.js";
 
 // The sidebar's rail goes by its width, not a flag: dragging its edge narrows it too.
@@ -32,10 +33,17 @@ export function toggleSidebar() {
   if (!narrow()) setShared("sidebar.width", width);
   // Mods edited before the rail went by width still read the flag.
   setShared("sidebar.collapsed", !narrow());
+  const folding = !narrow();
   run("layout.resize", {
     id: "sidebar",
     px: narrow() ? (shared("sidebar.width") ?? 268) : window()?.platform === "macos" ? 76 : 44,
   });
+  // herdr-omni: the rail shows the lists, never Files.
+  if (folding) showListsIfFiles();
+}
+
+export function showListsIfFiles() {
+  if (filesShowing(layout())) run("layout.select", { stack: STACK, child: LISTS });
 }
 
 function lead(tab, all = panes()) {

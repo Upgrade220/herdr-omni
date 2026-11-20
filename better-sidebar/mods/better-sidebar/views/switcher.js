@@ -4,10 +4,15 @@
 // (a key bound to `better-sidebar.files`) shows Files and gives it the keyboard.
 import { h_flex } from "gpui-base";
 import { agents, theme, run, layout, shared, setShared, nextCommand } from "herdr";
-import { Agents, narrow, toggleSidebar } from "./agents.js";
+import { Agents, narrow, toggleSidebar, showListsIfFiles } from "./agents.js";
+import { newSpaceButton } from "./spaces.js";
 import { findNode } from "./find-node.js";
-import { STACK, LISTS, FILES, TAB_KEY, readTab, switcherState } from "./switcher-state.js";
-import { TEXT, Badge, IconButton } from "./ui.js";
+import { STACK, LISTS, FILES, TAB_KEY, readTab, switcherState, filesShowing } from "./switcher-state.js";
+import { TEXT, TabChip } from "./ui.js";
+
+// How long the files key waits for Files to show (looks × ms) before it gives up.
+const LOOKS = 5;
+const LOOK_MS = 150;
 
 // Shows Files, first widening the rail, as its » does.
 export function showFiles() {
@@ -21,19 +26,27 @@ export class Switcher {
     // For the Agents tab's sort menu; the sort itself is shared.
     this.agents = new Agents();
     this.agents.init(props, cx);
-    cx.spawn(async () => {
-      for (;;) this.command(await nextCommand());
+    cx.spawn(async (cx) => {
+      for (;;) await this.command(await nextCommand(), cx);
     });
   }
 
-  command(name) {
+  // `better-sidebar.files`. A copy hears commands only while it shows, and starts the
+  // first time it shows: wait until the stack shows Files, then a tick, then focus it.
+  async command(name, cx) {
     if (name !== "files" || !findNode(layout(), STACK)) return;
     showFiles();
-    run("better-files.focus");
+    for (let look = 0; look < LOOKS; look++) {
+      await cx.sleep(LOOK_MS);
+      if (!filesShowing(layout())) continue;
+      await cx.sleep(LOOK_MS);
+      run("better-files.focus");
+      return;
+    }
   }
 
   pick(id, cx) {
-    if (id === "files") showFiles();
+    if (id === FILES) showFiles();
     else {
       setShared(TAB_KEY, id);
       if (findNode(layout(), STACK)) run("layout.select", { stack: STACK, child: LISTS });
@@ -53,47 +66,24 @@ export class Switcher {
       .bg(t.chrome)
       .border_b(1)
       .border_color(t.border)
-      .text_size(TEXT.body);
-    // The rail has no room for tabs; Files left showing there gets a way back.
-    if (narrow())
-      return bar.justify_center().when(on === "files", (el) =>
-        el.child(
-          IconButton({ id: "switcher-lists", icon: "layers", label: "Spaces", iconSize: 14, muted: true, onClick: (cx) => this.pick(readTab(shared(TAB_KEY), null), cx) }),
-        ),
-      );
-    // Drawn as the lists view's own tabs.
-    const tab = (id, label, count) =>
-      h_flex()
-        .id(`switcher-${id}`)
-        .px(10)
-        .h(24)
-        .gap(5)
-        .justify_center()
-        .items_center()
-        .rounded(6)
-        .cursor_pointer()
-        .text_size(TEXT.label)
-        .font_medium()
-        .text_color(on === id ? t.foreground : t.dim)
-        .when(on === id, (el) => el.bg(t.selected))
-        .when(on !== id, (el) => el.hover((s) => s.bg(t.hover).text_color(t.foreground)))
-        .on_click((_e, cx) => this.pick(id, cx))
-        .child(label)
-        .when(count !== null, (el) => el.child(Badge(count)));
-    const trailing =
-      on === "spaces"
-        ? [IconButton({ id: "space-new", icon: "plus", label: "New space", iconSize: 14, muted: true, onClick: () => run("space.new") })]
-        : on === "agents"
-          ? [this.agents.sortMenu()]
-          : [];
+      .text_size(TEXT.body)
+      // A sidebar dragged down to the rail shows the lists, never Files.
+      .on_size_change((size) => {
+        if (size.width < 160) showListsIfFiles();
+      });
+    // The rail has no room for tabs.
+    if (narrow()) return bar;
+    const tab = (id, label, count = null) =>
+      TabChip({ id: `switcher-${id}`, label, count, on: on === id, onClick: (cx) => this.pick(id, cx) });
+    const trailing = on === "spaces" ? [newSpaceButton()] : on === "agents" ? [this.agents.sortMenu()] : [];
     return bar
       .child(
         h_flex()
           .flex_1()
           .gap(2)
-          .child(tab("spaces", "Spaces", null))
+          .child(tab("spaces", "Spaces"))
           .child(tab("agents", "Agents", agents().length))
-          .child(tab(FILES, "Files", null)),
+          .child(tab(FILES, "Files")),
       )
       .children(trailing);
   }
