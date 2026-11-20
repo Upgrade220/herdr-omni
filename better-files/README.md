@@ -126,10 +126,10 @@ See [LICENSE](LICENSE) and [NOTICE](NOTICE) for attribution.
 
 ## Changes in herdr-omni
 
-This copy is adapted from [munza/herdr-mods](https://github.com/munza/herdr-mods/tree/main/better-files) (v1.6.1). The changes are in progress; the plan is:
+This copy is adapted from [munza/herdr-mods](https://github.com/munza/herdr-mods/tree/main/better-files) (v1.6.1). The changes:
 
 - A Git on/off setting (shared key `better-files.git`, default on) that hides the change marks, lines and diff actions when off.
 - Git extras for the tree, with ideas from [cybertron288/herdr-mods filetree](https://github.com/cybertron288/herdr-mods/tree/main/filetree) (MIT).
 - A Recent tab (shared key `better-files.recent`) listing the files you opened or agents touched, newest first.
 - Show diff, which opens a file's changes in a git-graph Diff tab.
-- A Files tab in the left sidebar, next to the Spaces and agents lists.
+- A Files tab in the left sidebar, next to the Spaces and agents lists: put the mod in a `files` child of a `sidebar-body` stack and add a `better-sidebar` switcher block (see [better-sidebar](../better-sidebar/README.md#spaces--agents--files)). `Cmd+Shift+E` (`better-sidebar.files` in `keys.json`) shows it and focuses the filter.
