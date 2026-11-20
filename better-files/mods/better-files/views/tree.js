@@ -223,10 +223,15 @@ export const treeMethods = {
             .id("files-title")
             .flex_1()
             .min_w(0)
+            .overflow_hidden()
             .gap(6)
             .items_center()
             .child(div().flex_none().font_medium().child("Files"))
-            .when(Boolean(folderLabel(this.root)), (el) => el.child(Badge(folderLabel(this.root)))),
+            // herdr-omni: the header also holds Tree | Recent and the Git switch, so in a narrow
+            // sidebar the folder badge shrinks and cuts off instead of running under them.
+            .when(Boolean(folderLabel(this.root)), (el) =>
+              el.child(Badge(folderLabel(this.root)).flex_shrink_1().min_w(0).truncate()),
+            ),
         )
         .child(this.headerTabs())
         .child(this.gitToggle(t))
