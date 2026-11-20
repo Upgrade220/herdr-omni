@@ -472,7 +472,7 @@ test('comments, template strings and tags carry from one line to the next', asyn
   assert.deepEqual(tokens(['"""Doc', 'more"""', 'x = 1'], 'py'), [[['"""Doc', 'string']], [['more"""', 'string']], [['1', 'number']]]);
 });
 
-test('colouring never changes a line\'s text', async () => {
+test('colouring never changes a line\'s text', { skip: !fs.existsSync(path.join(__dirname, '../../better-changes')) && 'sibling mod not in this repo' }, async () => {
   const { context: m } = await ready();
   const repo = path.join(__dirname, '../..');
   const files = ['better-files', 'better-changes'].flatMap((mod) => [
@@ -545,7 +545,7 @@ test('there is one title: the pane header with Better Changes\' header, else the
   assert.match(strings(find(own.mod.render(), 'viewer-bar')), /main\.go[\s\S]*src/);
 });
 
-test('with Better Icons installed, rows and the title show its icons; without it, the plain ones', async () => {
+test('with Better Icons installed, rows and the title show its icons; without it, the plain ones', { skip: !fs.existsSync(path.join(__dirname, '../../better-icons/mods/better-icons/icons.json')) && 'sibling mod not in this repo' }, async () => {
   const PACK = { '/app/mods/better-icons/icons.json': fs.readFileSync(path.join(__dirname, '../../better-icons/mods/better-icons/icons.json'), 'utf8') };
   const icon = (h, id) => strings(find(h.mod.render(), id).nodes[1]);
   const h = await ready({ texts: PACK });
@@ -1565,7 +1565,7 @@ test('the row view recolours when another file has the same text', async () => {
   assert.deepEqual(kinds(), ['keyword', 'number'], 'the same lines, coloured as JavaScript');
 });
 
-test('syntax.js is the same file in Better Files and Better Changes', () => {
+test('syntax.js is the same file in Better Files and Better Changes', { skip: !fs.existsSync(path.join(__dirname, '../../better-changes/mods/better-changes/syntax.js')) && 'sibling mod not in this repo' }, () => {
   const read = (mod) => fs.readFileSync(path.join(__dirname, `../../${mod}/mods/${mod}/syntax.js`), 'utf8');
   assert.equal(read('better-files'), read('better-changes'));
 });
