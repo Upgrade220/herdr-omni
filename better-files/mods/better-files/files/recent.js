@@ -40,3 +40,9 @@ export function kindsOf(paths, stdout) {
   if (letters.length !== paths.length) return new Map();
   return new Map(paths.map((p, i) => [p, letters[i]]));
 }
+
+// The list without entries kindsOf says are folders; the same list when none are.
+export function dropFolders(list, kinds) {
+  const kept = list.filter((e) => kinds.get(e.path) !== 'd');
+  return kept.length === list.length ? list : kept;
+}

@@ -51,7 +51,11 @@ export const gitMethods = {
         if (on) {
           this.marks = {};
           this.gitInfo = null;
-        } else this.refresh(cx);
+        }
+        // A run already going read Git's old state: one more follows it (refresh runs now
+        // when none is going). The filter's list is read again for the other state too.
+        this.refreshAgain = true;
+        this.refresh(cx);
         cx.notify();
       })
       .child(Icon("branch", 15));

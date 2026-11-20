@@ -253,7 +253,8 @@ export const treeMethods = {
       .overflow_y_scrollbar()
       .track_scroll(this.treeScroll)
       .track_focus(this.treeFocus)
-      .on_key_down((event, cx) => this.treeKey(event, cx))
+      // The Recent list has no marker: the tree's keys rest while it's shown.
+      .on_key_down((event, cx) => this.tab !== "recent" && this.treeKey(event, cx))
       .p(6);
     if (!this.root) body.child(Message("Select a space to see its files."));
     else if (recent) this.recentView(body, t);

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const src = fs.readFileSync(path.join(__dirname, '../mods/better-files/files/recent.js'), 'utf8').replace(/^export /gm, '');
-const R = new Function(`${src}\nreturn { SKIP_DIRS, skipped, record, ago, recentRows, KINDS, kindsOf, relativeIn };`)();
+const R = new Function(`${src}\nreturn { SKIP_DIRS, skipped, record, ago, recentRows, KINDS, kindsOf, relativeIn, dropFolders };`)();
 
 test('150 distinct paths keep 100, newest first', () => {
   let list = [];
@@ -63,4 +63,12 @@ test('relativeIn: a watched path inside the folder, else null', () => {
   assert.equal(R.relativeIn('/r/', '/r/a.js'), 'a.js');
   assert.equal(R.relativeIn('/r', '/r'), null, 'the root itself means refresh everything');
   assert.equal(R.relativeIn('/r', '/rx/a.js'), null);
+});
+
+test('dropFolders: entries known to be folders go, unknown and gone stay; same list back when nothing goes', () => {
+  const list = [{ path: 'a', at: 3 }, { path: 'src', at: 2 }, { path: 'b', at: 1 }];
+  const kinds = new Map([['a', 'f'], ['src', 'd']]);
+  assert.deepEqual(R.dropFolders(list, kinds), [{ path: 'a', at: 3 }, { path: 'b', at: 1 }]);
+  const none = new Map([['a', '-']]);
+  assert.equal(R.dropFolders(list, none), list);
 });

@@ -2,7 +2,7 @@
 import { spaces, panes, focused, exec, watchFolder, window, setShared, shared } from "herdr";
 import { PER_FOLDER, markKey, parseStatus, sortEntries } from "./model.js";
 import { NUMSTAT, BRANCH, IGNORED, parseNumstat, folderCounts, parseBranch, summaryOf, parseIgnored, isIgnored, rebase } from "./git-extras.js";
-import { record, relativeIn, KINDS, kindsOf } from "./recent.js";
+import { record, relativeIn, KINDS, kindsOf, dropFolders } from "./recent.js";
 import { pickListing } from "./shell.js";
 import { indexOf } from "./filter.js";
 
@@ -22,7 +22,9 @@ const SKIPPED = [".git", "node_modules", ".venv", "__pycache__", "target", "dist
 // Every file under the folder, for the filter: Git's own list where there is one, so ignored
 // files stay out, else find without the folders that are usually huge, cut at a size. A folder
 // Git ignores, such as node_modules, gets an empty list from Git, so find reads it instead.
-async function everyFile(root, on) {
+// With Git off (useGit false) the list is find's alone, ignored files included.
+async function everyFile(root, on, useGit = true) {
+  if (!useGit) return findEvery(root, on);
   const lsFiles = (...flags) =>
     exec("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.quotepath=off", "ls-files", "-z", ...flags], { cwd: root, on }).catch(
       () => null,
@@ -37,6 +39,10 @@ async function everyFile(root, on) {
       .filter((path) => !deleted.has(path))
       .join("\0");
   }
+  return findEvery(root, on);
+}
+
+async function findEvery(root, on) {
   const depth = SHALLOW_ROOT.test(root.replace(/\/+$/, "") || "/") ? SHALLOW_DEPTH : INDEX_DEPTH;
   const prune = SKIPPED.map((name) => `-name '${name}'`).join(" -o ");
   const script = `find . -mindepth 1 -maxdepth "$1" \\( ${prune} \\) -prune -o ! -type d -print0 | head -c "$2"`;
@@ -132,6 +138,8 @@ export const readMethods = {
     if (!cwd || this.loading === key) return;
     const token = key;
     this.loading = key;
+    // A run starting now sees every change asked for so far.
+    this.refreshAgain = false;
     cx.notify();
     cx.spawn(async (cx) => {
       try {
@@ -147,6 +155,8 @@ export const readMethods = {
       } finally {
         if (this.loading === token) this.loading = null;
         cx.notify();
+        // Asked again while this run was going (the Git switch): one more run, now.
+        if (this.refreshAgain && this.key === token) this.refresh(cx);
       }
     });
   },
@@ -229,7 +239,7 @@ export const readMethods = {
       try {
         while (this.key === key) {
           const changed = await watchFolder(root);
-          if (this.key === key) this.recordChanges(root, changed);
+          if (this.key === key) await this.recordChanges(root, changed);
           this.changes = (this.changes ?? 0) + 1;
           if (this.index?.key === key) this.index.stale = true;
           if (this.key === key) this.refresh(cx);
@@ -245,8 +255,12 @@ export const readMethods = {
   // changes on disk but at most every 5 seconds, and every 30 for a folder that can't be watched.
   ensureIndex(cx) {
     const { root, on, key } = this;
-    if (!root || !this.filterText() || this.indexing === key) return;
-    const index = this.index?.key === key ? this.index : null;
+    // A list read with Git on hides ignored files; one read with it off doesn't: the switch
+    // makes the other list due.
+    const git = gitOn();
+    const reading = `${git}:${key}`;
+    if (!root || !this.filterText() || this.indexing === reading) return;
+    const index = this.index?.key === key && this.index.git === git ? this.index : null;
     const age = index ? Date.now() - index.at : Infinity;
     if (index && age < (index.stale ? RESTALE_MS : REINDEX_MS)) {
       // The last change before a quiet spell still gets read, once the wait is over.
@@ -259,20 +273,20 @@ export const readMethods = {
       }
       return;
     }
-    this.indexing = key;
+    this.indexing = reading;
     cx.spawn(async (cx) => {
       try {
         // A change on disk while the list is read leaves it stale, to be read again.
         const changes = this.changes;
-        const listing = await everyFile(root, on);
-        if (this.key === key) {
-          this.index = { key, at: Date.now(), stale: this.changes !== changes, ...indexOf(listing) };
+        const listing = await everyFile(root, on, git);
+        if (this.key === key && gitOn() === git) {
+          this.index = { key, git, at: Date.now(), stale: this.changes !== changes, ...indexOf(listing) };
           this.indexError = null;
         }
       } catch (e) {
         if (this.key === key) this.indexError = e.message ?? String(e);
       } finally {
-        if (this.indexing === key) this.indexing = null;
+        if (this.indexing === reading) this.indexing = null;
         cx.notify();
       }
     });
@@ -280,17 +294,33 @@ export const readMethods = {
 
   // Recent: each changed path under the folder goes to the front of its list, except the
   // usual huge folders and what Git ignores (the last list read, kept while Git is off).
-  recordChanges(root, changed) {
-    const all = shared("better-files.recent") ?? {};
-    const before = all[root] ?? [];
-    let list = before;
-    const at = Date.now();
+  // The watch reports folders too, so one sh call asks which paths are folders first.
+  async recordChanges(root, changed) {
+    const fresh = [];
     for (const path of changed ?? []) {
       const relative = relativeIn(root, path);
       if (!relative || (this.ignoredSet && isIgnored(this.ignoredSet, relative))) continue;
-      list = record(list, relative, at);
+      if (!fresh.includes(relative) && record([], relative, 0).length) fresh.push(relative);
     }
-    if (list !== before) setShared("better-files.recent", { ...all, [root]: list });
+    // The list keeps 100, so only the last 100 reported can matter.
+    const paths = fresh.slice(-100);
+    if (!paths.length) return;
+    const local = window()?.platform !== "windows";
+    const r = local ? await exec("sh", ["-c", KINDS, "kinds", ...paths], { cwd: root }).catch(() => null) : null;
+    const kinds = r?.code === 0 ? kindsOf(paths, r.stdout) : new Map();
+    const all = shared("better-files.recent") ?? {};
+    const at = Date.now();
+    let list = all[root] ?? [];
+    for (const relative of paths) if (kinds.get(relative) !== "d") list = record(list, relative, at);
+    setShared("better-files.recent", { ...all, [root]: dropFolders(list, kinds) });
+  },
+
+  // Forgets Recent entries found to be folders. Called from a check, never from drawing.
+  dropRecentFolders(root, kinds) {
+    const all = shared("better-files.recent") ?? {};
+    const list = all[root] ?? [];
+    const kept = dropFolders(list, kinds);
+    if (kept !== list) setShared("better-files.recent", { ...all, [root]: kept });
   },
 
   // Which Recent paths are still there, and which are folders (a watch reports those too):
@@ -303,7 +333,9 @@ export const readMethods = {
     if (!on && window()?.platform === "windows") return;
     const r = await exec("sh", ["-c", KINDS, "kinds", ...paths], { cwd: root, on }).catch(() => null);
     if (this.key !== token || r?.code !== 0) return;
-    this.recentKinds = { key: token, paths, at: Date.now(), kinds: kindsOf(paths, r.stdout) };
+    const kinds = kindsOf(paths, r.stdout);
+    this.recentKinds = { key: token, paths, at: Date.now(), kinds };
+    this.dropRecentFolders(root, kinds);
   },
 
   toggleFolder(path, cx) {
