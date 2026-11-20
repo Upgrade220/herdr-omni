@@ -65,3 +65,13 @@ zsh, git) and the code in our mods (Diff tab, file viewer).
 ## Non-goals
 
 A light variant; Claude Code's own theme; editing other apps.
+
+## Added 2026-11-20: more themes, per-theme code colours
+
+- Themes `xcode-11-dark` (Xcode 11–14) and `islands-dark` (JetBrains, from the IntelliJ
+  Community sources) join `xcode-dark`. Settings' theme picker lists them; no extra selector.
+- Islands colours code differently (strings green, keywords orange), so one fixed pairing
+  can't fit every theme without wrecking terminal colours. Each theme may have
+  `code-colors/<name>.json` naming each kind of code's colour; mods find the shown theme by
+  matching theme() against themes/*.json (a mod can't ask the theme's name) and fall back to
+  `CODE_COLORS`. Not inside the theme file: Herdr rejects unknown fields there.

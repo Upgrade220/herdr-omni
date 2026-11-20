@@ -17,9 +17,13 @@ taken from other people's mod repos and adjusted for how I work.
 
 | Theme | What it is |
 |---|---|
-| [xcode-dark](themes/xcode-dark.json) | Xcode 15+ "Default (Dark)": window, terminals and code in git-graph and better-files. Copy it to `~/.config/herdr-app/themes/`, then pick it in Settings (or `herdr-app do app.theme --name xcode-dark`). In Claude Code, `/theme` → "dark (ANSI colours only)" follows it too. |
+| [xcode-dark](themes/xcode-dark.json) | Xcode 15+ "Default (Dark)" |
+| [xcode-11-dark](themes/xcode-11-dark.json) | Xcode 11–14 "Default (Dark)" (the one the JetBrains Xcode-Dark plugins copy) |
+| [islands-dark](themes/islands-dark.json) | JetBrains Islands Dark, colours from the IntelliJ Community repo (`ManyIslandsDark.theme.json`, `IslandSchemeDark.xml`, Darcula's console colours) |
 
-Code in git-graph and better-files is coloured from the theme only (`CODE_COLORS` in each `syntax.js`), in Xcode's pairing: keywords magenta, strings red, numbers yellow, types cyan, functions green.
+Copy `themes/*.json` to `~/.config/herdr-app/themes/` and `code-colors/*.json` to `~/.config/herdr-app/code-colors/`, then pick a theme in Settings. In Claude Code, `/theme` → "dark (ANSI colours only)" follows the theme too.
+
+Code in git-graph (Diff tab) and better-files (file viewer) is coloured from the theme: `code-colors/<theme>.json` names each kind of code's colour (`keyword`, `string`, `number`, `type`, `function`, `constant`, `attribute`, `property`, `tag`, `comment`; a hex colour or a theme colour name). A theme without one uses `CODE_COLORS` in each mod's `syntax.js`: keywords magenta, strings red, numbers yellow, types cyan, functions green. Herdr refuses unknown fields in a theme file, so the code colours live in their own folder.
 
 ## Install
 
