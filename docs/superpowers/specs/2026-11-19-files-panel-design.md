@@ -28,7 +28,7 @@ leave the top bar and the right-hand panel; Git and CI stay on the right.
 - A key opens the Files tab and puts the keyboard in the tree: `cmd-shift-e`, as in VS Code
   (better-files' own focus action), if it's free.
 
-**Git on / off:** one toggle in the Files header (a branch icon), remembered.
+**Git on / off** *(dropped 2026-11-20 after trying it: Files always shows git info; the toggle and the off state were removed)*: one toggle in the Files header (a branch icon), remembered.
 - **Off:** a plain tree and a plain file view: no colours or letters on rows, no changed-line
   tints in the viewer, no summary, ignored files shown like any other.
 - **On:** everything better-files shows today, plus from filetree:

@@ -27,8 +27,9 @@ function element() {
   return proxy;
 }
 
-async function harness({ settings = {}, tab = null, panes = [], sharedValues = {}, spaces: given, focusedTab = null, git = {}, stored: saved = {} } = {}) {
+async function harness({ settings = {}, tab = null, panes = [], sharedValues = {}, spaces: given, focusedTab = null, git = {}, stored: saved = {}, props = { view: "lists" }, tree = { id: "sidebar", size: { px: 268 } } } = {}) {
   const pending = [];
+  const ran = [];
   const stored = { "lists.tab": tab, ...saved };
   const live = { order: [] };
   const tabOf = (id) => ({ id, name: id });
@@ -62,13 +63,14 @@ async function harness({ settings = {}, tab = null, panes = [], sharedValues = {
     focused: () => (focusedTab ? { tab: focusedTab } : null),
     machines: () => [],
     theme: () => new Proxy({}, { get: (_t, k) => String(k) }),
-    layout: () => ({ id: "sidebar", size: { px: 268 } }),
+    layout: () => tree,
     window: () => ({ active: true, platform: "macos" }),
-    props: () => ({ view: "lists" }),
+    props: () => props,
     shared: (k) => sharedValues[k],
-    setShared() {},
+    setShared: (k, v) => (sharedValues[k] = v),
     setAgentOrder: (list) => (live.order = [...list]),
-    run() {},
+    run: (name, args) => ran.push([name, args]),
+    nextCommand: () => new Promise(() => {}),
     openOverlay() {},
     hc: async () => ({ code: 0, stdout: '{"machines":[]}' }),
     watchFolder: async () => { throw Error("No watcher in tests"); },
@@ -79,7 +81,7 @@ async function harness({ settings = {}, tab = null, panes = [], sharedValues = {
   };
   vm.createContext(context);
   // Each file in its own scope, as a module is; its exports become globals for the next.
-  for (const file of ["settings.js", "git/pr-status.js", "git/checkouts.js", "views/find-node.js", "views/ui.js", "views/folds.js", "views/spaces.js", "views/tab-label.js", "views/agents.js", "views/lists.js"]) {
+  for (const file of ["settings.js", "git/pr-status.js", "git/checkouts.js", "views/find-node.js", "views/ui.js", "views/folds.js", "views/spaces.js", "views/tab-label.js", "views/agents.js", "views/switcher-state.js", "views/switcher.js", "views/lists.js"]) {
     const source = fs.readFileSync(path.join(runtime, file), "utf8").replace(/^import\s+[\s\S]*?;\n/gm, "");
     const names = [...source.matchAll(/^export (?:async )?(?:class|function|const) (\w+)/gm)].map((m) => m[1]);
     vm.runInContext(`Object.assign(globalThis, (() => { ${source.replaceAll("export ", "")}\nreturn { ${names.join(", ")} }; })());`, context);
@@ -88,7 +90,7 @@ async function harness({ settings = {}, tab = null, panes = [], sharedValues = {
   mod.init({}, cx);
   while (pending.length) await Promise.all(pending.splice(0));
   for (const [folder, info] of Object.entries(git)) mod.spaces.git[JSON.stringify([null, folder])] = info;
-  return { mod, live, stored, cx };
+  return { mod, live, stored, cx, ran, sharedValues, context };
 }
 
 // herdr-omni: spaces start folded; upstream's expectations hold with them opened.
@@ -300,4 +302,134 @@ test("an Agents row shows its unnamed tab's terminal title, not the number", asy
     panes: [{ pane: "p-t1", tab: "a", terminal: "t1", title: "✳ Fix totals", program: { name: "Claude Code", key: "claude", agent: true }, cwd: "/w/shop" }],
   });
   assert.match(text(find(mod.render(), "ag-t1")), /^\s*Fix totals\s+shop/);
+});
+
+// ── herdr-omni: the Files switcher ──────────────────────────────────────────
+
+// A sidebar whose body is a stack of the lists block and a Files block.
+const withFiles = (px = 268, active = "spaces") => ({
+  id: "sidebar",
+  size: { px },
+  children: [{ id: "sidebar-body", type: "stack", active, children: [{ id: "spaces" }, { id: "files" }] }],
+});
+
+test("with strip off, the lists draw no tabs of their own, and still follow the tab", async () => {
+  const { mod } = await harness({ props: { view: "lists", strip: false }, sharedValues: { "better-sidebar.tab": "agents" } });
+  const root = mod.render();
+  assert.equal(find(root, "lists-tab-spaces"), undefined);
+  assert.equal(find(root, "lists-tab-agents"), undefined);
+  assert.ok(find(root, "ag-list"));
+});
+
+test("the lists follow the shared tab over their own, and picking one shares it", async () => {
+  const sharedValues = { "better-sidebar.tab": "agents" };
+  const { mod, cx, stored } = await harness({ tab: "spaces", sharedValues });
+  assert.ok(find(mod.render(), "ag-list"));
+  find(mod.render(), "lists-tab-spaces").handlers.click({}, cx);
+  assert.equal(sharedValues["better-sidebar.tab"], "spaces");
+  assert.equal(stored["lists.tab"], "spaces");
+  assert.ok(find(mod.render(), "space-shop"));
+});
+
+test("a tab kept from before the shared key becomes the shared one", async () => {
+  const sharedValues = {};
+  await harness({ tab: "agents", sharedValues });
+  assert.equal(sharedValues["better-sidebar.tab"], "agents");
+});
+
+test("the rail has a Files icon when the sidebar has a Files block; it widens the sidebar, then shows Files", async () => {
+  const { mod, ran: calls } = await harness({ tree: withFiles(44) });
+  const ran = () => JSON.parse(JSON.stringify(calls));
+  const icon = find(mod.render(), "rail-files");
+  assert.ok(icon);
+  icon.handlers.click({}, stopper());
+  assert.deepEqual(ran(), [
+    ["layout.resize", { id: "sidebar", px: 268 }],
+    ["layout.select", { stack: "sidebar-body", child: "files" }],
+  ]);
+});
+
+test("no Files icon on the rail without a Files block, nor in the wide sidebar", async () => {
+  assert.equal(find((await harness({ tree: { id: "sidebar", size: { px: 44 } } })).mod.render(), "rail-files"), undefined);
+  assert.equal(find((await harness({ tree: withFiles(268) })).mod.render(), "rail-files"), undefined);
+});
+
+// The switcher block (props.view "switcher").
+async function switcher(opts) {
+  const h = await harness(opts);
+  const sw = new h.context.Switcher();
+  sw.init({}, h.cx);
+  return { ...h, sw };
+}
+
+test("the switcher lights Files when the stack shows it, and the lists tab otherwise", async () => {
+  const lit = (root, id) => find(root, `switcher-${id}`).attributes.bg !== undefined;
+  const { sw } = await switcher({ tree: withFiles(268, "files"), sharedValues: { "better-sidebar.tab": "agents" } });
+  assert.ok(lit(sw.render(), "files"));
+  assert.ok(!lit(sw.render(), "agents"));
+  const { sw: lists } = await switcher({ tree: withFiles(268, "spaces"), sharedValues: { "better-sidebar.tab": "agents" } });
+  assert.ok(lit(lists.render(), "agents"));
+  assert.match(text(find(lists.render(), "switcher-agents")), /Agents 3/);
+});
+
+test("the switcher's Files shows the Files block; Agents shows the lists on that tab", async () => {
+  const sharedValues = {};
+  const { sw, ran, cx } = await switcher({ tree: withFiles(), sharedValues });
+  const last = () => JSON.parse(JSON.stringify(ran.pop()));
+  find(sw.render(), "switcher-files").handlers.click({}, cx);
+  assert.deepEqual(last(), ["layout.select", { stack: "sidebar-body", child: "files" }]);
+  find(sw.render(), "switcher-agents").handlers.click({}, cx);
+  assert.deepEqual(last(), ["layout.select", { stack: "sidebar-body", child: "spaces" }]);
+  assert.equal(sharedValues["better-sidebar.tab"], "agents");
+});
+
+// A cx whose sleep counts, and may flip the stack to Files after some sleeps.
+const sleeper = (tree, flipAfter = Infinity) => {
+  const cx = { slept: 0, notify() {}, sleep: async () => { if (++cx.slept >= flipAfter) tree.children[0].active = "files"; } };
+  return cx;
+};
+
+test("the files key shows Files, waits until the stack shows it, then gives it the keyboard", async () => {
+  const tree = withFiles();
+  const { sw, ran } = await switcher({ tree, sharedValues: {} });
+  const cx = sleeper(tree, 2);
+  await sw.command("files", cx);
+  assert.deepEqual(ran.map(([name]) => name), ["layout.select", "better-files.focus"]);
+  // Two looks until it shows, then one tick for the copy to start.
+  assert.equal(cx.slept, 3);
+});
+
+test("the files key gives up quietly if Files never shows", async () => {
+  const tree = withFiles();
+  const { sw, ran } = await switcher({ tree, sharedValues: {} });
+  const cx = sleeper(tree);
+  await sw.command("files", cx);
+  assert.deepEqual(ran.map(([name]) => name), ["layout.select"]);
+  assert.equal(cx.slept, 5);
+});
+
+test("folding to the rail with Files showing shows the lists", async () => {
+  const { ran, context } = await harness({ tree: withFiles(268, "files") });
+  context.toggleSidebar();
+  assert.deepEqual(JSON.parse(JSON.stringify(ran)).map(([name, args]) => [name, args.child ?? args.px]), [
+    ["layout.resize", 76],
+    ["layout.select", "spaces"],
+  ]);
+});
+
+test("the sidebar dragged narrow with Files showing shows the lists", async () => {
+  const resize = async (active, width) => {
+    const { sw, ran, cx } = await switcher({ tree: withFiles(268, active) });
+    find(sw.render(), "better-sidebar-switcher").attributes.on_size_change[0]({ width }, cx);
+    return JSON.parse(JSON.stringify(ran));
+  };
+  assert.deepEqual(await resize("files", 100), [["layout.select", { stack: "sidebar-body", child: "spaces" }]]);
+  assert.deepEqual(await resize("files", 268), []);
+  assert.deepEqual(await resize("spaces", 100), []);
+});
+
+test("on the rail the switcher draws no tabs", async () => {
+  const { sw } = await switcher({ tree: withFiles(44, "files") });
+  const drawn = ids(sw.render());
+  assert.deepEqual(drawn, ["better-sidebar-switcher"]);
 });

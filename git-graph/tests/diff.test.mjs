@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { diffRows, splitDiffRows, conflictRows } from "../mods/git-graph/diff-rows.js";
 import { languageOf, tokenizeLine } from "../mods/git-graph/syntax.js";
-import { diffArgs, untrackedRows, rowsFromDiff, scopeLabel, statusOf, statOf, capRows, DIFF_LINES, rowsWidth, UNREADABLE } from "../mods/git-graph/diff-target.js";
+import { diffArgs, untrackedRows, rowsFromDiff, scopeLabel, statusOf, statOf, capRows, DIFF_LINES, rowsWidth, UNREADABLE, targetFromProps } from "../mods/git-graph/diff-target.js";
 
 const env = { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t", GIT_CONFIG_GLOBAL: "/dev/null" };
 const git = (cwd, args) => { const r = spawnSync("git", args, { cwd, env, encoding: "utf8" }); assert.equal(r.status, 0, `${args.join(" ")}: ${r.stderr}`); return r.stdout; };
@@ -221,4 +221,18 @@ test("rowsWidth: the widest row in code-font widths, at least 300, for any numbe
   assert.equal(rowsWidth([{ text: "x".repeat(100) }, { text: "y" }], 10), (100 * 0.62 + 10) * 10);
   const many = Array.from({ length: 300000 }, () => ({ text: "z" }));
   assert.equal(rowsWidth(many, 14), 300);
+});
+
+test("targetFromProps takes a well-formed target from a new Diff tab's props, else null", () => {
+  const target = { root: "/r", path: "a b.js", source: "unstaged", on: null };
+  assert.deepEqual(targetFromProps({ target }), target);
+  assert.deepEqual(targetFromProps({ view: "diff", target: { ...target, source: "untracked" } }).source, "untracked");
+  assert.equal(targetFromProps({ target: { root: "/r", source: "unstaged", on: null } }), null, "no path");
+  assert.equal(targetFromProps({ target: { ...target, path: "" } }), null, "empty path");
+  assert.equal(targetFromProps({ target: { ...target, root: 7 } }), null, "root not a string");
+  assert.equal(targetFromProps({ target: { ...target, source: "elsewhere" } }), null, "unknown source");
+  assert.equal(targetFromProps({ target: { ...target, source: "commit" } }), null, "a commit target needs its commit");
+  assert.equal(targetFromProps({ target: { ...target, source: "commit", commit: { hash: "abc" } } }).commit.hash, "abc");
+  assert.equal(targetFromProps({ view: "diff" }), null);
+  assert.equal(targetFromProps(null), null);
 });

@@ -52,6 +52,18 @@ function tone(t, status) {
   return t[status] ?? t.unknown;
 }
 
+// herdr-omni: a function too, for the switcher's strip.
+export function newSpaceButton() {
+  return IconButton({
+    id: "space-new",
+    icon: "plus",
+    label: "New space",
+    iconSize: 14,
+    muted: true,
+    onClick: () => run("space.new"),
+  });
+}
+
 export class Spaces {
   // ── Lifecycle and refresh scheduling ──────────────────────────────────────
 
@@ -764,14 +776,7 @@ export class Spaces {
   }
 
   newSpaceButton() {
-    return IconButton({
-      id: "space-new",
-      icon: "plus",
-      label: "New space",
-      iconSize: 14,
-      muted: true,
-      onClick: () => run("space.new"),
-    });
+    return newSpaceButton();
   }
 
   header(t, collapsed) {

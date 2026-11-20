@@ -2,13 +2,13 @@
 // each space's tabs and agents under it, and Agents. With `combined: false` in the settings: the
 // two lists one above the other, as two blocks of this mod would draw them.
 import { v_flex, h_flex } from "gpui-base";
-import { agents, focused, theme, setAgentOrder } from "herdr";
+import { agents, focused, theme, setAgentOrder, props, layout, shared, setShared } from "herdr";
 import { Spaces } from "./spaces.js";
 import { Agents } from "./agents.js";
-import { TEXT, Badge, Rail } from "./ui.js";
+import { TEXT, Rail, IconButton, TabChip } from "./ui.js";
+import { TAB_KEY, TABS, readTab, hasFilesStack } from "./switcher-state.js";
+import { showFiles } from "./switcher.js";
 import { Folds, SpaceTree, Chevron, StatusDot, mainNodeRow, mainNodeId, mostUrgent } from "./folds.js";
-
-const TABS = ["spaces", "agents"];
 
 export class Lists {
   init(props, cx) {
@@ -18,18 +18,23 @@ export class Lists {
     this.agents.init(props, cx);
     const saved = localStorage.getItem("lists.tab");
     this.tab = TABS.includes(saved) ? saved : "spaces";
+    // herdr-omni: the tab is shared, so the switcher block can set it; the one this copy
+    // kept before the shared key starts it.
+    if (!TABS.includes(shared(TAB_KEY)) && TABS.includes(saved)) setShared(TAB_KEY, saved);
     this.folds = new Folds();
   }
 
   pick(tab, cx) {
     this.tab = tab;
     localStorage.setItem("lists.tab", tab);
+    setShared(TAB_KEY, tab);
     cx.notify();
   }
 
   render() {
     const t = theme();
     const collapsed = this.spaces.collapsed();
+    this.tab = readTab(shared(TAB_KEY), this.tab);
     const root = v_flex()
       .id("better-sidebar-lists")
       .size_full()
@@ -47,6 +52,7 @@ export class Lists {
     // The rail has no room for tabs: both lists, as numbers.
     if (!this.spaces.settings.combined || collapsed)
       return root
+        .when(collapsed && hasFilesStack(layout()), (el) => el.child(this.railFiles()))
         .child(
           v_flex()
             .flex_1()
@@ -57,7 +63,8 @@ export class Lists {
         .child(v_flex().flex_1().min_h(0).child(this.agents.render()));
 
     const view = this.agents.readView();
-    root.child(this.tabBar(t, view));
+    // herdr-omni: under the switcher block, its strip stands in for this one.
+    if (props()?.strip !== false) root.child(this.tabBar(t, view));
     if (this.tab !== "spaces") return root.child(this.agents.render({ view, heading: false }));
 
     // Spaces, each with its tabs and agents beneath in tab order, so rows don't move as
@@ -157,27 +164,20 @@ export class Lists {
     this.spaces.hidden = (r) => tree.hidden(r);
   }
 
+  // herdr-omni: on the rail, the way to Files: it widens the sidebar, then shows Files.
+  railFiles() {
+    return h_flex()
+      .h(31)
+      .flex_none()
+      .justify_center()
+      .items_center()
+      .child(IconButton({ id: "rail-files", icon: "file", label: "Files", iconSize: 14, muted: true, onClick: showFiles }));
+  }
+
   // Tabs side by side from the left, the picked one filled.
   tabBar(t, view) {
     const tab = (id, label, count) =>
-      h_flex()
-        .id(`lists-tab-${id}`)
-        .px(10)
-        .h(24)
-        .gap(5)
-        .justify_center()
-        .items_center()
-        .rounded(6)
-        .cursor_pointer()
-        .text_size(TEXT.label)
-        .font_medium()
-        .text_color(this.tab === id ? t.foreground : t.dim)
-        .when(this.tab === id, (el) => el.bg(t.selected))
-        .when(this.tab !== id, (el) => el.hover((s) => s.bg(t.hover).text_color(t.foreground)))
-        .on_click((_e, cx) => this.pick(id, cx))
-        .child(label)
-        // The count badge the group headers use.
-        .when(count !== null, (el) => el.child(Badge(count)));
+      TabChip({ id: `lists-tab-${id}`, label, count, on: this.tab === id, onClick: (cx) => this.pick(id, cx) });
     return h_flex()
       .px(8)
       .pt(6)

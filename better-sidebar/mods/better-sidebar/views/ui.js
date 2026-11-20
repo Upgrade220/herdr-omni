@@ -59,6 +59,29 @@ export function IconButton({ id, icon, label, onClick, iconSize = 15, muted = fa
     .child(Icon(icon, iconSize));
 }
 
+// A tab in a strip of tabs: the picked one filled, with an optional count badge.
+export function TabChip({ id, label, count = null, on, onClick }) {
+  const t = theme();
+  return h_flex()
+    .id(id)
+    .px(10)
+    .h(24)
+    .gap(5)
+    .justify_center()
+    .items_center()
+    .rounded(6)
+    .cursor_pointer()
+    .text_size(TEXT.label)
+    .font_medium()
+    .text_color(on ? t.foreground : t.dim)
+    .when(on, (el) => el.bg(t.selected))
+    .when(!on, (el) => el.hover((s) => s.bg(t.hover).text_color(t.foreground)))
+    .on_click((_e, cx) => onClick(cx))
+    .child(label)
+    // The count badge the group headers use.
+    .when(count !== null, (el) => el.child(Badge(count)));
+}
+
 // A section heading in a list. Its chevron and click fold the section.
 export function GroupHeader({
   id,
