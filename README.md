@@ -20,6 +20,11 @@ taken from other people's mod repos and adjusted for how I work.
 | [xcode-dark](themes/xcode-dark.json) | Xcode 15+ "Default (Dark)" |
 | [xcode-11-dark](themes/xcode-11-dark.json) | Xcode 11–14 "Default (Dark)" (the one the JetBrains Xcode-Dark plugins copy) |
 | [islands-dark](themes/islands-dark.json) | JetBrains Islands Dark, colours from the IntelliJ Community repo (`ManyIslandsDark.theme.json`, `IslandSchemeDark.xml`, Darcula's console colours) |
+| [github-dark](themes/github-dark.json) | GitHub Dark Default (GitHub's VS Code theme) |
+| [one-dark-pro](themes/one-dark-pro.json) | One Dark Pro, from its VS Code theme file |
+| [dracula](themes/dracula.json) | Dracula, from its official Ghostty theme |
+| [tokyo-night](themes/tokyo-night.json) | Tokyo Night (Night), from folke/tokyonight.nvim's Ghostty extra |
+| [catppuccin-mocha](themes/catppuccin-mocha.json) | Catppuccin Mocha, from its official Ghostty theme |
 
 Copy `themes/*.json` to `~/.config/herdr-app/themes/` and `code-colors/*.json` to `~/.config/herdr-app/code-colors/`, then pick a theme in Settings. In Claude Code, `/theme` → "dark (ANSI colours only)" follows the theme too.
 
