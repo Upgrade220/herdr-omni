@@ -13,6 +13,14 @@ taken from other people's mod repos and adjusted for how I work.
 | [better-tabs](better-tabs/) | Tab bar with draggable, wrapping tabs and a toolbar of panel buttons; unnamed tabs show their title | [munza/herdr-mods better-tabs](https://github.com/munza/herdr-mods/tree/main/better-tabs) |
 | [git-graph](git-graph/) | Git graph of the focused terminal's repo; changes, commit and full-tab views | [rabeeh-ta/herdr-git-graph](https://github.com/rabeeh-ta/herdr-git-graph) (MIT); changes/commit code ported from git-panel in [LaiqianDS/herdr-mods](https://github.com/LaiqianDS/herdr-mods) (Apache-2.0) |
 
+## Themes
+
+| Theme | What it is |
+|---|---|
+| [xcode-dark](themes/xcode-dark.json) | Xcode 15+ "Default (Dark)": window, terminals and code in git-graph and better-files. Copy it to `~/.config/herdr-app/themes/`, then pick it in Settings (or `herdr-app do app.theme --name xcode-dark`). In Claude Code, `/theme` → "dark (ANSI colours only)" follows it too. |
+
+Code in git-graph and better-files is coloured from the theme only (`CODE_COLORS` in each `syntax.js`), in Xcode's pairing: keywords magenta, strings red, numbers yellow, types cyan, functions green.
+
 ## Install
 
 Paste this into your agent inside Herdr, with the mod's folder name:
