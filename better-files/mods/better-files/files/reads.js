@@ -1,6 +1,8 @@
 // Reading the folder tree, and Git's view of it, for the focused pane's folder.
-import { spaces, panes, focused, exec, watchFolder, window } from "herdr";
-import { PER_FOLDER, parseStatus, sortEntries } from "./model.js";
+import { spaces, panes, focused, exec, watchFolder, window, setShared, shared } from "herdr";
+import { PER_FOLDER, markKey, parseStatus, sortEntries } from "./model.js";
+import { NUMSTAT, BRANCH, IGNORED, parseNumstat, folderCounts, parseBranch, summaryOf, parseIgnored, isIgnored, rebase } from "./git-extras.js";
+import { record, relativeIn, KINDS, kindsOf } from "./recent.js";
 import { pickListing } from "./shell.js";
 import { indexOf } from "./filter.js";
 
@@ -12,6 +14,9 @@ const SHALLOW_ROOT = /^\/(?:(?:home|Users)\/[^/]+|root)?$/;
 const REINDEX_MS = 30000;
 // A folder that keeps changing, such as one an agent is writing in, is read again at most this often.
 const RESTALE_MS = 5000;
+// Off by the header's branch button: then Git is not asked anything for the tree.
+export const gitOn = () => shared("better-files.git") !== false;
+const RECENT_CHECK_MS = 5000;
 const SKIPPED = [".git", "node_modules", ".venv", "__pycache__", "target", "dist", ".next"];
 
 // Every file under the folder, for the filter: Git's own list where there is one, so ignored
@@ -113,6 +118,9 @@ export const readMethods = {
       this.entries = new Map();
       this.folders = kept?.folders ?? new Set();
       this.marks = {};
+      this.gitInfo = null;
+      this.ignoredSet = null;
+      this.recentKinds = null;
       this.top = null;
       this.treeError = null;
       this.indexError = null;
@@ -133,6 +141,7 @@ export const readMethods = {
         }
         await this.loadMarks(cwd, on, token);
         if (this.key === token) this.treeError = null;
+        if (this.tab === "recent") await this.checkRecent(cwd, on, token);
       } catch (e) {
         if (this.key === token) this.treeError = e.message ?? String(e);
       } finally {
@@ -150,6 +159,11 @@ export const readMethods = {
 
   // Writes nothing under .git, or the folder watch would see its own read and refresh again.
   async loadMarks(root, on, token) {
+    if (!gitOn()) {
+      this.marks = {};
+      this.gitInfo = null;
+      return;
+    }
     const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: root, on }).catch(
       () => null,
     );
@@ -157,6 +171,7 @@ export const readMethods = {
     if (top?.code !== 0) {
       this.top = null;
       this.marks = {};
+      this.gitInfo = null;
       return;
     }
     const status = await exec(
@@ -178,6 +193,31 @@ export const readMethods = {
     // kept; marks are compared through markKey, so it needn't match the root's.
     this.top = top.stdout.trim();
     if (status?.code === 0) this.marks = parseStatus(status.stdout, this.top);
+    await this.loadGitExtras(root, on, token);
+  },
+
+  // The filetree-style extras: +N -N per file, changed counts per folder, the branch line,
+  // and what Git ignores (listed from the shown folder, so relative to it, like the tree).
+  async loadGitExtras(root, on, token) {
+    const git = (args) => exec("git", ["-c", "core.fsmonitor=false", "-c", "core.quotepath=off", ...args], { cwd: root, on }).catch(() => null);
+    const [head, branch, ignored] = await Promise.all([
+      git(["rev-parse", "--verify", "--quiet", "HEAD"]),
+      git(BRANCH),
+      git(IGNORED),
+    ]);
+    // A repo with no commits has no HEAD to diff against.
+    const numstat = head?.code === 0 ? await git(NUMSTAT) : null;
+    if (this.key !== token || !gitOn()) return;
+    const top = markKey(this.top);
+    const here = markKey(root);
+    const lines = numstat?.code === 0 ? parseNumstat(numstat.stdout) : {};
+    this.gitInfo = {
+      numstat: rebase(lines, top, here),
+      counts: folderCounts(rebase(this.marks, "", here)),
+      summary: summaryOf(this.marks, lines, branch?.code === 0 ? parseBranch(branch.stdout) : null),
+      ignored: ignored?.code === 0 ? parseIgnored(ignored.stdout) : (this.gitInfo?.ignored ?? new Set()),
+    };
+    this.ignoredSet = this.gitInfo.ignored;
   },
 
   // A local folder says when it changes; another machine's is read on the timer alone.
@@ -188,7 +228,8 @@ export const readMethods = {
     cx.spawn(async (cx) => {
       try {
         while (this.key === key) {
-          await watchFolder(root);
+          const changed = await watchFolder(root);
+          if (this.key === key) this.recordChanges(root, changed);
           this.changes = (this.changes ?? 0) + 1;
           if (this.index?.key === key) this.index.stale = true;
           if (this.key === key) this.refresh(cx);
@@ -235,6 +276,34 @@ export const readMethods = {
         cx.notify();
       }
     });
+  },
+
+  // Recent: each changed path under the folder goes to the front of its list, except the
+  // usual huge folders and what Git ignores (the last list read, kept while Git is off).
+  recordChanges(root, changed) {
+    const all = shared("better-files.recent") ?? {};
+    const before = all[root] ?? [];
+    let list = before;
+    const at = Date.now();
+    for (const path of changed ?? []) {
+      const relative = relativeIn(root, path);
+      if (!relative || (this.ignoredSet && isIgnored(this.ignoredSet, relative))) continue;
+      list = record(list, relative, at);
+    }
+    if (list !== before) setShared("better-files.recent", { ...all, [root]: list });
+  },
+
+  // Which Recent paths are still there, and which are folders (a watch reports those too):
+  // one sh call per check, at most every few seconds, never from drawing.
+  async checkRecent(root, on, token) {
+    const paths = (shared("better-files.recent")?.[root] ?? []).map((e) => e.path);
+    const known = this.recentKinds;
+    const same = known?.key === token && JSON.stringify(known.paths) === JSON.stringify(paths);
+    if (!paths.length || (same && Date.now() - known.at < RECENT_CHECK_MS)) return;
+    if (!on && window()?.platform === "windows") return;
+    const r = await exec("sh", ["-c", KINDS, "kinds", ...paths], { cwd: root, on }).catch(() => null);
+    if (this.key !== token || r?.code !== 0) return;
+    this.recentKinds = { key: token, paths, at: Date.now(), kinds: kindsOf(paths, r.stdout) };
   },
 
   toggleFolder(path, cx) {

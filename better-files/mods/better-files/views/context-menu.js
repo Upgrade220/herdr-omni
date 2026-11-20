@@ -31,7 +31,7 @@ export const contextMenuMethods = {
         ? [{ id: "reveal", label: revealLabel(window()?.platform), run: () => this.reveal(target.path) }]
         : []),
     ]);
-    if (!target.dir && target.changed && shared("better-files.has-changes"))
+    if (!target.dir && target.changed && shared("better-files.git") !== false && shared("better-files.has-changes"))
       groups.push([{ id: "diff", label: "Show diff", run: (cx) => this.showDiff(target, cx) }]);
     groups.push([
       {

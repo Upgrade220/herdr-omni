@@ -24,3 +24,19 @@ export function ago(ms) {
 export function recentRows(list, exists, now) {
   return list.map((e) => ({ path: e.path, ago: ago(now - e.at), gone: !exists(e.path) }));
 }
+
+// A watched absolute path relative to the shown folder; the folder itself (refresh
+// everything) and paths elsewhere give null.
+export function relativeIn(root, path) {
+  const prefix = `${root.replace(/\/+$/, '')}/`;
+  return path.startsWith(prefix) && path.length > prefix.length ? path.slice(prefix.length) : null;
+}
+
+// `sh -c KINDS kinds path...` prints one letter per path: f a file, d a folder, - gone.
+export const KINDS = 'for p; do if [ -d "$p" ]; then printf d; elif [ -e "$p" ]; then printf f; else printf -; fi; done';
+
+export function kindsOf(paths, stdout) {
+  const letters = String(stdout).trim();
+  if (letters.length !== paths.length) return new Map();
+  return new Map(paths.map((p, i) => [p, letters[i]]));
+}

@@ -7,7 +7,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const src = fs.readFileSync(path.join(__dirname, '../mods/better-files/files/git-extras.js'), 'utf8').replace(/^export /gm, '');
-const X = new Function(`${src}\nreturn { NUMSTAT, BRANCH, IGNORED, parseNumstat, folderCounts, parseBranch, summaryOf, parseIgnored, isIgnored };`)();
+const X = new Function(`${src}\nreturn { NUMSTAT, BRANCH, IGNORED, parseNumstat, folderCounts, parseBranch, summaryOf, parseIgnored, isIgnored, rebase };`)();
 
 const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
@@ -76,4 +76,13 @@ test('ignored folder covers its descendants', () => {
   assert.ok(X.isIgnored(set, 'a.log'));
   assert.ok(!X.isIgnored(set, 'keep.js'));
   assert.ok(!X.isIgnored(set, 'distant/x.js'));
+});
+
+test('rebase: absolute or repo-relative keys, read from a shown subfolder', () => {
+  const marks = { '/r/a.js': 'M', '/r/src/b.js': { mark: 'A' }, '/r/src/x/c.js': 'D', '/rx/d.js': 'M' };
+  assert.deepEqual(X.rebase(marks, '', '/r/src'), { 'b.js': { mark: 'A' }, 'x/c.js': 'D' });
+  assert.deepEqual(X.rebase({ 'src/b.js': 1, 'a.js': 2 }, '/r', '/r/src'), { 'b.js': 1 });
+  assert.deepEqual(X.rebase({ 'a.js': 2 }, '/r', '/r'), { 'a.js': 2 });
+  assert.deepEqual(X.folderCounts(X.rebase(marks, '', '/r')), { '': 3, src: 2, 'src/x': 1 });
+  assert.deepEqual(X.rebase(null, '', '/r'), {});
 });

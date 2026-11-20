@@ -7,6 +7,7 @@ import { baseName, holdsChange, markKey, TOTAL_ROWS } from "../files/model.js";
 import { viewerEntries } from "../actions/open.js";
 import { editorId, foundEditors } from "../actions/outside.js";
 import { agentName } from "../actions/agents.js";
+import { gitOn } from "../files/reads.js";
 import { TEXT, Badge, Button, Chevron, FileIcon, Icon, markColor, IconButton, Message, Panel, PanelHeader, StatusLetter, TextBox } from "./ui.js";
 
 const INDENT = 14;
@@ -27,7 +28,7 @@ export const treeMethods = {
   targetOf(relative, dir) {
     const path = `${this.root}/${relative}`;
     const key = markKey(path);
-    const change = this.marks[key];
+    const change = gitOn() ? this.marks[key] : null;
     const top = this.top && markKey(this.top);
     return {
       path,
@@ -65,8 +66,11 @@ export const treeMethods = {
   row(relative, name, dir, depth, t, match = null) {
     const path = `${this.root}/${relative}`;
     const open = match ? match.open : this.folders.has(relative);
-    const change = this.marks[markKey(path)];
-    const color = dir ? (holdsChange(this.marks, path) ? t.ansi3 : null) : markColor(change?.mark, t);
+    const marks = gitOn() ? this.marks : {};
+    const change = marks[markKey(path)];
+    const color = dir ? (holdsChange(marks, path) ? t.ansi3 : null) : markColor(change?.mark, t);
+    const ignored = !color && this.ignoredRow(relative, dir);
+    const extras = this.rowExtras(relative, dir, t);
     const selected = !dir && Object.values(viewerEntries()).some((v) => v.file?.path === path);
     const marked = relative === this.cursor && this.showsCursor();
     return h_flex()
@@ -104,11 +108,12 @@ export const treeMethods = {
           .min_w(0)
           .truncate()
           .when(Boolean(color), (el) => el.text_color(color))
-          .when(Boolean(match && !match.hit && !color), (el) => el.text_color(t.dim))
+          .when(Boolean((match && !match.hit && !color) || ignored), (el) => el.text_color(t.dim))
           .child(name),
       )
+      .when(Boolean(extras), (el) => el.child(extras))
       .when(Boolean(change), (el) => el.child(StatusLetter(change.mark)))
-      .when(dir && holdsChange(this.marks, path), (el) =>
+      .when(dir && !this.gitInfo && holdsChange(marks, path), (el) =>
         el.child(div().size(6).flex_none().rounded(3).bg(t.ansi3)),
       );
   },
@@ -221,6 +226,8 @@ export const treeMethods = {
             .child(div().flex_none().font_medium().child("Files"))
             .when(Boolean(folderLabel(this.root)), (el) => el.child(Badge(folderLabel(this.root)))),
         )
+        .child(this.headerTabs())
+        .child(this.gitToggle(t))
         .when(Boolean(this.root && !this.on), (el) => el.child(this.folderMenu(t)))
         .child(
           IconButton({
@@ -232,7 +239,10 @@ export const treeMethods = {
           }),
         ),
     );
-    if (this.root) root.child(this.filterRow(t));
+    const summary = this.summaryLine(t);
+    if (summary) root.child(summary);
+    const recent = this.tab === "recent";
+    if (this.root && !recent) root.child(this.filterRow(t));
     if (failure) root.child(Message(failure, true));
     if (this.notice) root.child(Message(this.notice));
     const body = v_flex()
@@ -246,6 +256,7 @@ export const treeMethods = {
       .on_key_down((event, cx) => this.treeKey(event, cx))
       .p(6);
     if (!this.root) body.child(Message("Select a space to see its files."));
+    else if (recent) this.recentView(body, t);
     else if (this.filterText()) this.matchesView(body, t);
     else {
       const rows = this.visibleRows();

@@ -11,6 +11,7 @@
 //   actions/agents.js     sending a file to an agent
 //   actions/menus.js      popup menus
 //   views/tree.js, filter.js, tools.js, viewer.js, context-menu.js   the drawing
+//   views/git.js, recent.js   Git's extras and the Recent tab (herdr-omni)
 //   views/keys.js         the tree from the keyboard
 // files/model.js says what the data means; views/ui.js holds every look but the token
 // colours: syntax.js colours the file view's code, and Better Changes has the same file.
@@ -30,6 +31,8 @@ import { savedDotfiles, toolMethods } from "./views/tools.js";
 import { keyMethods } from "./views/keys.js";
 import { viewerMethods } from "./views/viewer.js";
 import { contextMenuMethods } from "./views/context-menu.js";
+import { gitMethods } from "./views/git.js";
+import { recentMethods } from "./views/recent.js";
 
 const DEFAULT_SETTINGS = { refresh: { tree: "10s", file: "2s" }, editors: [], gutter: true, markdown: "preview" };
 const SYNC_MS = 300;
@@ -177,6 +180,8 @@ Object.assign(
   keyMethods,
   viewerMethods,
   contextMenuMethods,
+  gitMethods,
+  recentMethods,
 );
 
 export default BetterFiles;

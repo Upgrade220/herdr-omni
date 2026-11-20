@@ -78,3 +78,15 @@ export function isIgnored(set, path) {
   }
   return false;
 }
+
+// Keys moved to another base: each key, read as `${from}/key` (from "" when keys are already
+// absolute), keeps only when it lies under `to`, and comes back relative to `to`.
+export function rebase(obj, from, to) {
+  const out = {};
+  const prefix = `${to.replace(/\/+$/, "")}/`;
+  for (const [key, value] of Object.entries(obj || {})) {
+    const abs = from ? `${from}/${key}` : key;
+    if (abs.startsWith(prefix)) out[abs.slice(prefix.length)] = value;
+  }
+  return out;
+}
