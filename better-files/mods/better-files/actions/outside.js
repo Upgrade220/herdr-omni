@@ -42,13 +42,11 @@ export const outsideMethods = {
     });
   },
 
-  // Show diff is only offered where Better Changes can answer it.
-  findBetterChanges(cx) {
+  // Show diff is only offered where git-graph's Diff tab can answer it.
+  findGitGraph(cx) {
     cx.spawn(async (cx) => {
-      const manifest = await readTextFile(`${appHome()}/mods/better-changes/mod.json`).catch(
-        () => null,
-      );
-      setShared("better-files.has-changes", Boolean(manifest));
+      const manifest = await readTextFile(`${appHome()}/mods/git-graph/mod.json`).catch(() => null);
+      setShared("better-files.has-git-graph", Boolean(manifest));
       cx.notify();
     });
   },

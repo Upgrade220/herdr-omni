@@ -250,7 +250,8 @@ export function sortEntries(entries) {
 }
 
 // `git status --porcelain=v1 -z`, keyed by absolute path. `staged` is true when the only
-// change is in the index, which is where a diff of it has to look.
+// change is in the index, which is where a diff of it has to look; `untracked` when Git doesn't
+// know the file yet (`??`), which a diff reads whole.
 // How a path is compared: Git writes forward slashes and its own drive-letter case even on
 // Windows, while the tree keeps the folder's own spelling, so marks are stored and looked up
 // by this key. A POSIX path comes out unchanged unless its names hold a backslash.
@@ -264,6 +265,7 @@ export function parseStatus(stdout, top) {
     marks[markKey(`${top}/${entry.slice(3)}`)] = {
       mark: untracked || xy.includes("A") ? "A" : xy.includes("U") ? "U" : xy.includes("D") ? "D" : "M",
       staged: !untracked && xy[0] !== " " && xy[1] === " ",
+      untracked,
     };
   }
   return marks;

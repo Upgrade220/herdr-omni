@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '../mods/better-files');
-const FILES = ['settings.js', 'files/model.js', 'files/file-icons.js', 'files/filter.js', 'views/ui.js', 'files/shell.js', 'files/git-extras.js', 'files/recent.js', 'files/reads.js', 'actions/open.js', 'actions/outside.js', 'actions/agents.js', 'actions/menus.js', 'views/tree.js', 'views/filter.js', 'views/tools.js', 'views/keys.js', 'views/viewer.js', 'views/context-menu.js', 'views/git.js', 'views/recent.js', 'main.js'];
+const FILES = ['settings.js', 'files/model.js', 'files/diff-handoff.js', 'files/file-icons.js', 'files/filter.js', 'views/ui.js', 'files/shell.js', 'files/git-extras.js', 'files/recent.js', 'files/reads.js', 'actions/open.js', 'actions/outside.js', 'actions/agents.js', 'actions/menus.js', 'views/tree.js', 'views/filter.js', 'views/tools.js', 'views/keys.js', 'views/viewer.js', 'views/context-menu.js', 'views/git.js', 'views/recent.js', 'main.js'];
 // syntax.js keeps a scope of its own, as a module does: its languageOf isn't model.js's.
 const lexer = fs.readFileSync(path.join(root, 'syntax.js'), 'utf8').replace(/^export /gm, '');
 const source = `const { highlightLines, tokenizeLine, syntaxColors, languageOf: lexerLanguage, WHOLE_FILE_LINES, fenceLanguage } = (() => {\n${lexer}\nreturn { highlightLines, tokenizeLine, syntaxColors, languageOf, WHOLE_FILE_LINES, fenceLanguage };\n})();\n`
@@ -93,7 +93,7 @@ function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage =
     },
     openOverlay: (spec) => { overlays.push(JSON.parse(JSON.stringify(spec))); return 'ov1'; }, closeOverlay: (id) => closed.push(id),
     layout: () => live.layout, appHome: () => '/app', nextCommand: () => new Promise((resolve) => waiting.push(resolve)), watchFolder: () => new Promise(() => {}),
-    readTextFile: async (p) => { if (p.endsWith('better-changes/mod.json')) return '{}'; if (p.endsWith('better-files/mod.json')) return null; if (live.texts[p] instanceof Error) throw live.texts[p]; return live.texts[p] ?? null; },
+    readTextFile: async (p) => { if (p.endsWith('git-graph/mod.json')) return '{}'; if (p.endsWith('better-files/mod.json')) return null; if (live.texts[p] instanceof Error) throw live.texts[p]; return live.texts[p] ?? null; },
     knownAgents: async () => known,
     hc: async (args) => { sent.push(args); return hcResult ?? { code: 0, stdout: '', stderr: '' }; },
     exec: async (bin, args, options) => {
@@ -672,7 +672,7 @@ test('right-click opens a menu at the pointer for that row', async () => {
 });
 
 test('a file\'s menu opens, copies, reveals and shows a diff, then closes', async () => {
-  const shared_ = { 'better-files.editors': [{ name: 'Zed', bundle: 'dev.zed.Zed' }], 'better-files.has-changes': true };
+  const shared_ = { 'better-files.editors': [{ name: 'Zed', bundle: 'dev.zed.Zed' }], 'better-files.has-git-graph': true };
   const h = await menuOf({ sharedInit: shared_ });
   assert.match(labels(h), /Open[\s\S]*Open in new tab[\s\S]*Open in Zed[\s\S]*Open in default app[\s\S]*Show in Finder[\s\S]*Show diff[\s\S]*Copy relative path[\s\S]*Copy full path/);
   click(h, 'files-menu-copy-relative');
@@ -689,22 +689,32 @@ test('a file\'s menu opens, copies, reveals and shows a diff, then closes', asyn
   assert.equal(viewers(h)[0].preview, false, 'a tab of its own');
 });
 
-test('Show diff hands the file to Better Changes the way its own list does', async () => {
-  const h = await menuOf({ sharedInit: { 'better-files.has-changes': true }, target: { ...FILE_TARGET, path: '/repo/src/main.go', root: '/repo/src', relative: 'src/main.go', staged: true } });
+test('Show diff opens git-graph\'s Diff tab on the file, by path from the Git root', async () => {
+  const h = await menuOf({ sharedInit: { 'better-files.has-git-graph': true }, target: { ...FILE_TARGET, path: '/repo/src/main.go', root: '/repo/src', relative: 'src/main.go', staged: true } });
   click(h, 'files-menu-diff');
+  const target = { root: '/repo', on: null, path: 'src/main.go', source: 'staged' };
   const [, args] = tabs(h)[0];
-  assert.equal(args.mod, 'better-changes');
-  assert.equal(args.props.mode, 'diff');
-  assert.equal(args.props.selection.path, 'src/main.go', 'by path from the Git root');
-  assert.equal(args.props.selection.scope, 'staged');
-  assert.equal(args.props.selection.context, JSON.stringify({ cwd: '/repo', on: null }));
-  assert.equal(h.store.get('better-changes.diff-tabs').s.selection.path, 'src/main.go');
+  assert.deepEqual(args, { name: 'main.go', mod: 'git-graph', props: { view: 'diff', target } });
+  const entry = JSON.parse(JSON.stringify(h.store.get('git-graph.diff-open').s));
+  assert.deepEqual(entry.target, target);
+  assert.equal(entry.pendingTab.at, entry.at);
+  assert.ok(Array.isArray(entry.pendingTab.before), 'the tabs before it, so the new copy finds its own');
+  assert.ok(!h.ran.some(([n, a]) => a?.mod === 'better-changes'));
+});
+
+test('Show diff selects the space\'s live Diff tab instead of opening another', async () => {
+  const h = await menuOf({ sharedInit: { 'better-files.has-git-graph': true, 'git-graph.diff-tabs': { s: 'tabD' } }, target: { ...FILE_TARGET, untracked: true } });
+  h.live.panes.push({ pane: 'pD', tab: 'tabD', mod: 'git-graph' });
+  click(h, 'files-menu-diff');
+  assert.equal(tabs(h).length, 0);
+  assert.deepEqual(h.ran.find(([n]) => n === 'tab.select'), ['tab.select', { id: 'tabD' }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.store.get('git-graph.diff-open').s.target)), { root: '/repo', on: null, path: 'b.md', source: 'untracked' });
 });
 
 test('what does not apply is not offered', async () => {
-  const unchanged = await menuOf({ target: { ...FILE_TARGET, changed: false }, sharedInit: { 'better-files.has-changes': true } });
+  const unchanged = await menuOf({ target: { ...FILE_TARGET, changed: false }, sharedInit: { 'better-files.has-git-graph': true } });
   assert.doesNotMatch(labels(unchanged), /Show diff/);
-  const noChanges = await menuOf({ sharedInit: { 'better-files.has-changes': false } });
+  const noChanges = await menuOf({ sharedInit: { 'better-files.has-git-graph': false } });
   assert.doesNotMatch(labels(noChanges), /Show diff/);
   const folder = await menuOf({ target: { ...FILE_TARGET, dir: true, changed: false }, sharedInit: { 'better-files.editors': [{ name: 'Zed', bundle: 'dev.zed.Zed' }] } });
   assert.doesNotMatch(labels(folder), /Open in new tab|default app|Show diff/);
@@ -830,8 +840,8 @@ test('the status parser and helpers', async () => {
   const { context: m } = await ready();
   const marks = m.parseStatus(' M a\0M  b\0?? c\0D  d\0UU e\0', '/r');
   assert.deepEqual(JSON.parse(JSON.stringify(marks)), {
-    '/r/a': { mark: 'M', staged: false }, '/r/b': { mark: 'M', staged: true }, '/r/c': { mark: 'A', staged: false },
-    '/r/d': { mark: 'D', staged: true }, '/r/e': { mark: 'U', staged: false },
+    '/r/a': { mark: 'M', staged: false, untracked: false }, '/r/b': { mark: 'M', staged: true, untracked: false }, '/r/c': { mark: 'A', staged: false, untracked: true },
+    '/r/d': { mark: 'D', staged: true, untracked: false }, '/r/e': { mark: 'U', staged: false, untracked: false },
   });
   assert.equal(m.languageOf('a/b.tsx'), 'js');
   assert.equal(m.languageOf('Makefile'), 'txt');

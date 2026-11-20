@@ -117,7 +117,7 @@ class BetterFiles extends View {
     this.treeFocus = cx.focus_handle();
     this.dotfiles = savedDotfiles();
     this.refresh(cx);
-    this.findBetterChanges(cx);
+    this.findGitGraph(cx);
     this.findNewAgents(this.on, cx);
     this.agentsOn = this.on ?? null;
     cx.timer.every(SYNC_MS, (cx) => this.follow(cx));

@@ -5,11 +5,11 @@
 // Ported from better-changes (https://github.com/munza/herdr-mods, Apache-2.0).
 import { div, image } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { exec, readTextFile, watchFolder, theme, settings, shared, setShared, focused, panes, spaces, run, checking } from "herdr";
+import { exec, readTextFile, watchFolder, theme, settings, shared, setShared, focused, panes, spaces, run, checking, props } from "herdr";
 import { READ, gitError } from "./git.js";
 import { splitDiffRows, conflictRows } from "./diff-rows.js";
 import { WHOLE_FILE_LINES, languageOf, syntaxColors, tokenizeLine } from "./syntax.js";
-import { diffArgs, rowsFromDiff, untrackedRows, scopeLabel, statusOf, statOf, capRows, rowsWidth, DIFF_LINES, NO_CHANGES } from "./diff-target.js";
+import { diffArgs, rowsFromDiff, untrackedRows, scopeLabel, statusOf, statOf, capRows, rowsWidth, DIFF_LINES, NO_CHANGES, targetFromProps } from "./diff-target.js";
 import { DIFF_TABS, DIFF_OPEN, DIFF_LAYOUT, DIFF_FULL, WORKTREE, pendingTarget, claimTab, registerDiffTab } from "./place.js";
 import { followFileIcons, fileIcon, isLight } from "./file-icons.js";
 
@@ -39,6 +39,10 @@ export class DiffView {
     this.token = 0; this.shownFull = null; this.gone = false;
     this.watchRoot = null; this.watchToken = 0; this.watchHandle = null; this.settling = false;
     this.seenChange = shared("git-graph.changed");
+    // A tab opened with a target (better-files' Show diff) shows it before it has claimed its tab;
+    // seenAt stays 0, so the hand-off entry still reaches it. A restored copy's saved target is newer.
+    const given = targetFromProps(props());
+    if (given) { this.target = given; this.targetSeq++; }
     try {
       const saved = JSON.parse(localStorage.getItem("target"));
       if (typeof saved?.target?.path === "string" && typeof saved.target.root === "string") {

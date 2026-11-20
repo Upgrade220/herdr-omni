@@ -64,7 +64,7 @@ Right-click a file or folder for:
 | **Open in** an editor | Each installed editor. Folders too. |
 | **Open in default app** | Whatever macOS opens that file with. |
 | **Show in Finder** | Reveals it. |
-| **Show diff** | Opens a changed file's diff in [Better Changes](../better-changes/README.md), if you have it. |
+| **Show diff** | Opens a changed file's diff in [git-graph](../git-graph/README.md)'s Diff tab, if you have it. |
 | **Copy relative path**, **Copy full path** | For pasting into a prompt. |
 | **Send to** an agent | Asks what it should do, then sends that with the path. Choose an agent that's running, **(spawn)** to start a sub-agent under it, or a new one in its own tab. Only **Send** delivers. |
 
@@ -100,7 +100,7 @@ Copy `mods/better-files/` into `~/.config/herdr-app/mods/` again, or ask your ag
 
 One class plays three roles, each its own copy: sidebar, viewer and menu, connected by `shared("better-files.*")`. Viewers register in `better-files.viewers`, and the menu leaves its question in `better-files.compose` for the sidebar to ask.
 
-The viewer publishes its title to `shared("pane-heads")`, which [Better Changes](../better-changes/README.md)' pane header shows. Show diff hands over through `better-changes.selection` and `better-changes.diff-tabs`, keyed to the Git root.
+The viewer publishes its title to `shared("pane-heads")`, which [Better Changes](../better-changes/README.md)' pane header shows. Show diff hands over through git-graph's `git-graph.diff-open` and `git-graph.diff-tabs`, by path from the Git root.
 
 Sending to agents: a running agent gets `hc send`; **(spawn)** runs `hc run --bg --parent <agent> --cwd <folder> <program> <message>` directly, so no shell sees the message; a new agent gets `tab.new` with the message as its first prompt. On macOS, editors are found with `mdfind` by app ID and opened with `open -b`; on Windows, one PowerShell run looks in App Paths, `PATH` and the usual install folders. Changed lines come from `git diff -U0 HEAD`.
 

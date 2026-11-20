@@ -39,6 +39,7 @@ export const treeMethods = {
       relative: top && key.startsWith(`${top}/`) ? key.slice(top.length + 1) : relative,
       changed: Boolean(change),
       staged: Boolean(change?.staged),
+      untracked: Boolean(change?.untracked),
     };
   },
 

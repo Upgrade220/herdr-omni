@@ -3,6 +3,7 @@
 // tab: it records the tab it was opened in, and the sidebar and menus act through that.
 import { panes, run, shared, setShared, spaces } from "herdr";
 import { baseName } from "../files/model.js";
+import { DIFF_OPEN, DIFF_TABS, diffPlan, diffTarget } from "../files/diff-handoff.js";
 
 const VIEWERS = "better-files.viewers";
 const OPENING_MS = 1500;
@@ -115,39 +116,19 @@ export const openMethods = {
     cx?.notify();
   },
 
-  // Hands a changed file to Better Changes, the way its own list does. `top` is the Git
-  // root, which is what it knows a file by.
+  // Shows a changed file in git-graph's Diff tab, the way its own Changes list does: the target
+  // goes through its shared hand-off, then its tab is selected, or a new one is opened that shows
+  // the target at once from its props and finds its tab through `pendingTab` (see diffPlan).
   showDiff(target, cx) {
     const space = spaces().find((s) => s.active);
-    if (!space || !target.top) return;
-    const source = { cwd: target.top, on: target.on ?? null };
-    const selection = {
-      context: JSON.stringify(source),
-      root: target.top,
-      on: target.on ?? null,
-      path: target.relative,
-      scope: target.staged ? "staged" : "unstaged",
-      at: Date.now(),
-    };
-    const entries = shared("better-changes.diff-tabs") ?? {};
-    const ids = new Set((space.tabs ?? []).map((t) => t.id));
-    const tab = panes().find((p) => p.mod === "better-changes" && ids.has(p.tab))?.tab;
-    const name = baseName(target.path);
-    setShared("better-changes.selection", selection);
-    setShared("better-changes.diff-tabs", {
-      ...entries,
-      [space.id]: { source, selection, pending: tab ? null : Date.now() },
-    });
-    if (tab) {
-      run("tab.rename", { id: tab, name });
-      run("tab.select", { id: tab });
-    } else
-      run("tab.new", {
-        space: space.id,
-        name,
-        mod: "better-changes",
-        props: { mode: "diff", space: space.id, source, selection },
-      });
+    const diff = diffTarget(target);
+    if (!space || !diff) return;
+    const open = shared(DIFF_OPEN) ?? {};
+    const plan = diffPlan({ map: shared(DIFF_TABS), open, spaces: spaces(), spaceId: space.id, target: diff, now: Date.now() });
+    setShared(DIFF_OPEN, { ...open, ...plan.open });
+    if (plan.select) run("tab.select", { id: plan.select });
+    else if (plan.newTab)
+      run("tab.new", { name: plan.newTab.name, mod: "git-graph", props: { view: "diff", target: diff } });
     cx?.notify();
   },
 };

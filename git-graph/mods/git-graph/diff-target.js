@@ -21,6 +21,16 @@ export function diffArgs(target, full = false) {
   }
 }
 
+// A target handed over in a new Diff tab's props (better-files' Show diff opens the tab with one), so
+// the tab shows it at once, before it has claimed its tab. Null unless it has the shape the view reads.
+const SOURCES = new Set(["unstaged", "staged", "untracked", "conflict", "commit"]);
+export function targetFromProps(props) {
+  const t = props?.target;
+  if (typeof t?.root !== "string" || typeof t.path !== "string" || !t.path || !SOURCES.has(t.source)) return null;
+  if (t.source === "commit" && typeof t.commit?.hash !== "string") return null;
+  return t;
+}
+
 export const EMPTY_FILE = "Empty file";
 export const UNREADABLE = "Cannot read this file. It may be binary or too large.";
 
