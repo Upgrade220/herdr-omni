@@ -23,10 +23,11 @@ import { tabLabel } from "./tab-label.js";
 import { TEXT, Icon, IconButton, GroupHeader, Menu, MenuLabel, MenuOption } from "./ui.js";
 
 // The sidebar's rail goes by its width, not a flag: dragging its edge narrows it too.
-const narrow = () => (findNode(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
+// herdr-omni: this and toggleSidebar are exported for the Files switcher.
+export const narrow = () => (findNode(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
 
 // To the rail (on macOS wide enough for the traffic lights), or back to the width it had.
-function toggleSidebar() {
+export function toggleSidebar() {
   const width = findNode(layout(), "sidebar")?.size?.px;
   if (!narrow()) setShared("sidebar.width", width);
   // Mods edited before the rail went by width still read the flag.

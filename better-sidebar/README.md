@@ -112,7 +112,7 @@ See the repository's [LICENSE](../LICENSE) and [NOTICE](../NOTICE) for upstream 
 
 ## Changes in herdr-omni
 
-This copy is adapted from [munza/herdr-mods](https://github.com/munza/herdr-mods/tree/main/better-sidebar) (v3.3.0). Only the Spaces tab of the `lists` view changed:
+This copy is adapted from [munza/herdr-mods](https://github.com/munza/herdr-mods/tree/main/better-sidebar) (v3.3.0). The Spaces tab of the `lists` view changed, and a Files switcher was added:
 
 - Every space, worktree and main-checkout row folds with a chevron. Clicking the chevron folds; clicking the row still selects it.
 - Rows whose children are tabs start folded. A space with worktrees starts open, with its rows folded.
@@ -123,3 +123,14 @@ This copy is adapted from [munza/herdr-mods](https://github.com/munza/herdr-mods
 - Fold choices are kept across restarts (`localStorage`, `spaces.folds`). Next/previous agent still reaches agents in folded rows.
 
 The code is in `views/folds.js`, with small hooks (`lead`, `trail`, `hidden`, `lit`) in `views/spaces.js` and `views/lists.js`. Tests: `tests/folds.test.cjs` and the end of `tests/lists.test.cjs`.
+
+### Spaces | Agents | Files
+
+A block with `"props": { "view": "switcher" }` draws the lists' tabs plus Files, for a sidebar whose body is a stack (`sidebar-body`) of a lists block (`spaces`, with `"strip": false` so it draws no tabs of its own) and a [Better Files](../better-files/README.md) block (`files`):
+
+- Files runs `layout.select {stack: "sidebar-body", child: "files"}`; Spaces and Agents select `spaces` and set its tab. The tab is shared (`better-sidebar.tab`), so the switcher and the lists agree; a tab kept before that starts it.
+- The New space button and the Agents sort menu move to the switcher's right.
+- On the rail, the lists show a Files icon: it widens the sidebar, as `»` does, then shows Files. If Files is left showing on the rail, the switcher shows a way back to the lists.
+- Bind a key to `better-sidebar.files` to show Files and give it the keyboard (`better-files.focus`).
+
+Without a `sidebar-body` stack nothing changes. Code: `views/switcher.js`, `views/switcher-state.js`; tests: `tests/switcher.test.cjs` and the end of `tests/lists.test.cjs`.

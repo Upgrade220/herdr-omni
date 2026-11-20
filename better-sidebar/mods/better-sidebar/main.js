@@ -7,8 +7,10 @@ import { Agents } from "./views/agents.js";
 import { Lists } from "./views/lists.js";
 import { Footer } from "./views/footer.js";
 import { PanelToggle } from "./views/panel-toggle.js";
+import { Switcher } from "./views/switcher.js";
 
-const PARTS = { lists: Lists, agents: Agents, footer: Footer, "panel-toggle": PanelToggle };
+// herdr-omni: `switcher` is Spaces | Agents | Files above a stack of lists and Better Files.
+const PARTS = { lists: Lists, agents: Agents, footer: Footer, "panel-toggle": PanelToggle, switcher: Switcher };
 
 export default class BetterSidebar extends View {
   init(given, cx) {
