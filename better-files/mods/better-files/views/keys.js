@@ -11,7 +11,9 @@ export const keyMethods = {
     return this.treeFocus.is_focused() || Boolean(this.filterFocused && this.filterText());
   },
 
+  // Shows the Tree tab first: the Recent list doesn't take the tree's keys.
   focusTree(cx) {
+    if (this.tab === "recent") this.tab = "tree";
     this.treeFocus.focus();
     if (!this.cursor) this.cursor = this.visibleRows()[0]?.relative ?? null;
     cx.notify();

@@ -1,5 +1,6 @@
 {
   "global": {
-    "cmd-shift-b": "better-sidebar.toggle-panel"
+    "cmd-shift-b": "better-sidebar.toggle-panel",
+    "cmd-shift-e": "better-sidebar.files"
   }
 }

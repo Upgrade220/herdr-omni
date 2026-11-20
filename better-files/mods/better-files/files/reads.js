@@ -2,7 +2,7 @@
 import { spaces, panes, focused, exec, watchFolder, window, setShared, shared } from "herdr";
 import { PER_FOLDER, markKey, parseStatus, sortEntries } from "./model.js";
 import { NUMSTAT, BRANCH, IGNORED, parseNumstat, folderCounts, parseBranch, summaryOf, parseIgnored, isIgnored, rebase } from "./git-extras.js";
-import { record, relativeIn, KINDS, kindsOf, dropFolders } from "./recent.js";
+import { record, relativeIn, KINDS, kindsOf, dropFolders, keepRecorded, dropGoneTemp } from "./recent.js";
 import { pickListing } from "./shell.js";
 import { indexOf } from "./filter.js";
 
@@ -311,15 +311,19 @@ export const readMethods = {
     const all = shared("better-files.recent") ?? {};
     const at = Date.now();
     let list = all[root] ?? [];
-    for (const relative of paths) if (kinds.get(relative) !== "d") list = record(list, relative, at);
-    setShared("better-files.recent", { ...all, [root]: dropFolders(list, kinds) });
+    for (const relative of paths) {
+      const kind = kinds.get(relative);
+      if (kind !== "d" && keepRecorded(relative, kind, list)) list = record(list, relative, at);
+    }
+    setShared("better-files.recent", { ...all, [root]: dropGoneTemp(dropFolders(list, kinds), kinds) });
   },
 
-  // Forgets Recent entries found to be folders. Called from a check, never from drawing.
+  // Forgets Recent entries found to be folders, or gone temp files (an editor's save).
+  // Called from a check, never from drawing.
   dropRecentFolders(root, kinds) {
     const all = shared("better-files.recent") ?? {};
     const list = all[root] ?? [];
-    const kept = dropFolders(list, kinds);
+    const kept = dropGoneTemp(dropFolders(list, kinds), kinds);
     if (kept !== list) setShared("better-files.recent", { ...all, [root]: kept });
   },
 

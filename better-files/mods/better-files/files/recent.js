@@ -46,3 +46,21 @@ export function dropFolders(list, kinds) {
   const kept = list.filter((e) => kinds.get(e.path) !== 'd');
   return kept.length === list.length ? list : kept;
 }
+
+// Editors' temp files: atomic-save copies (`x.js.tmp.123.abc`, `.!123!x.js`), backups
+// (`x.js~`) and swap files (`.x.js.swp`). `name` is the last part of a path.
+export function isTempName(name) {
+  return String(name).includes('.tmp.') || /^\.!\d+!/.test(name) || name.endsWith('~') || name.endsWith('.swp');
+}
+
+// Whether a reported path goes in the list: one already gone when checked (kind `-`) was
+// a temp file, unless the list knows it, so deleting a known file still shows.
+export function keepRecorded(path, kind, list) {
+  return kind !== '-' || list.some((e) => e.path === path);
+}
+
+// The list without entries kindsOf says are gone and look temporary; the same list when none are.
+export function dropGoneTemp(list, kinds) {
+  const kept = list.filter((e) => !(kinds.get(e.path) === '-' && isTempName(e.path.slice(e.path.lastIndexOf('/') + 1))));
+  return kept.length === list.length ? list : kept;
+}

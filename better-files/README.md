@@ -41,7 +41,13 @@ Files open in the centre pane, beside your agents, instead of squeezing into the
 - **Tree:** the focused pane's folder, named in the panel's title, with changed files coloured and lettered by what happened (green new, yellow edited, red gone or in conflict), and folders holding changes in yellow with a dot. It refreshes as files change. Focusing a file or diff tab leaves the tree where it was.
 - **Filter:** type in the box under the title to find files and folders anywhere in the folder, including ones you haven't opened. A name holding the words matches, and words with a `/` match the path. Matches show as a tree under their folders. Click a file to open it, or a folder to open it in the tree. **Enter** opens the first matching file, and **Escape** or **×** clears the box. In a Git repository, files Git ignores are left out.
 - **Tools** beside the filter: the eye shows or hides dotfiles, in the tree and in the matches, and this computer remembers it. **Collapse all** closes every folder.
-- **Keys:** click the tree, or press a key bound to `better-files.focus`, and the tree takes the keyboard, with a marker on a row. The included [keys.json](keys.json) suggests **Cmd+Shift+E**, as in VS Code's Explorer; merge it into `~/.config/herdr-app/keys.json`, or bind any key you like. **Up**/**Down** or **j**/**k** move, **PgUp**/**PgDn** move 10, and **Home**/**End** go to the ends. **Right** or **l** opens a folder, then steps into it; **Left** or **h** closes it, then steps out. **Enter** opens the row, **/** goes to the filter, **.** shows or hides dotfiles, and **Escape** clears the marker. In the filter box, **Up**/**Down** move through the matches and **Enter** opens the marked one.
+- **Keys:** click the tree, or press a key bound to `better-files.focus`, and the tree takes the keyboard, with a marker on a row. The mod binds no key. With Files in the left sidebar (below), bind **Cmd+Shift+E**, as in VS Code's Explorer, to `better-sidebar.files` instead: it shows Files first, then focuses the tree. Add this line to the `global` section of `~/.config/herdr-app/keys.json`:
+
+  ```json
+  "cmd-shift-e": "better-sidebar.files"
+  ```
+
+  Elsewhere, bind `better-files.focus` to any key that's free. **Up**/**Down** or **j**/**k** move, **PgUp**/**PgDn** move 10, and **Home**/**End** go to the ends. **Right** or **l** opens a folder, then steps into it; **Left** or **h** closes it, then steps out. **Enter** opens the row, **/** goes to the filter, **.** shows or hides dotfiles, and **Escape** clears the marker. In the filter box, **Up**/**Down** move through the matches and **Enter** opens the marked one.
 - **Click** a file to show it in one shared centre tab, so browsing doesn't pile up tabs.
 - **Double-click**, or **Keep tab**, to keep that tab. The next click starts a new shared tab.
 - **The file view** is read-only, at your terminal's font size, and follows the file as it changes on disk. Only a real change touches it. Binary and unreadable files say so, and very long files are cut at 400,000 characters.
@@ -130,6 +136,6 @@ This copy is adapted from [munza/herdr-mods](https://github.com/munza/herdr-mods
 
 - A Git on/off setting (shared key `better-files.git`, default on) that hides the change marks, lines and diff actions when off.
 - Git extras for the tree, with ideas from [cybertron288/herdr-mods filetree](https://github.com/cybertron288/herdr-mods/tree/main/filetree) (MIT).
-- A Recent tab (shared key `better-files.recent`) listing the files you opened or agents touched, newest first.
+- A Recent tab (shared key `better-files.recent`) listing the files you opened or agents touched, newest first. Editors' temp files are left out. It isn't available for folders on another machine.
 - Show diff, which opens a file's changes in a git-graph Diff tab.
-- A Files tab in the left sidebar, next to the Spaces and agents lists: put the mod in a `files` child of a `sidebar-body` stack and add a `better-sidebar` switcher block (see [better-sidebar](../better-sidebar/README.md#spaces--agents--files)). `Cmd+Shift+E` (`better-sidebar.files` in `keys.json`) shows it and focuses the filter.
+- A Files tab in the left sidebar, next to the Spaces and agents lists: put the mod in a `files` child of a `sidebar-body` stack and add a `better-sidebar` switcher block (see [better-sidebar](../better-sidebar/README.md#spaces--agents--files)). `Cmd+Shift+E` (`better-sidebar.files` in `keys.json`) shows it and focuses the tree.

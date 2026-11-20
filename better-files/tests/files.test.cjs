@@ -862,8 +862,11 @@ test('on Windows, marks match the tree from a subfolder and across drive-letter 
 });
 
 test('the suggested key focuses the tree through a command the sidebar handles', () => {
-  const keys = JSON.parse(fs.readFileSync(path.join(__dirname, '../keys.json'), 'utf8'));
-  assert.deepEqual(keys, { global: { 'cmd-shift-e': 'better-files.focus' } });
+  // Cmd+Shift+E belongs to better-sidebar.files, which runs better-files.focus: no second binding here.
+  assert.ok(!fs.existsSync(path.join(__dirname, '../keys.json')), 'better-files binds no key');
+  const sidebarKeys = JSON.parse(fs.readFileSync(path.join(__dirname, '../../better-sidebar/keys.json'), 'utf8'));
+  assert.equal(sidebarKeys.global['cmd-shift-e'], 'better-sidebar.files');
+  assert.match(fs.readFileSync(path.join(__dirname, '../README.md'), 'utf8'), /"cmd-shift-e": "better-sidebar\.files"/);
   assert.match(fs.readFileSync(path.join(root, 'main.js'), 'utf8'), /command === "focus"\) this\.focusTree\(cx\)/);
 });
 
@@ -1646,4 +1649,27 @@ test('with no tab shown, the tree takes a terminal in the space, not a pane from
   h.mod.place = null;
   h.tick();
   assert.equal(h.mod.root, '/repo/src');
+});
+
+test('the focus command shows the Tree tab first, so the keys reach the tree', async () => {
+  const h = await ready();
+  click(h, 'files-tab-recent');
+  await h.flush();
+  assert.equal(h.mod.tab, 'recent');
+  await h.command('focus');
+  assert.equal(h.mod.tab, 'tree');
+  assert.ok(find(h.mod.render(), 'files-row-src'), 'the tree is drawn');
+  assert.deepEqual(marked(h), ['src']);
+});
+
+test('Recent on another machine says it is not available there', async () => {
+  const far = await ready({ machine: 'box' });
+  click(far, 'files-tab-recent');
+  await far.flush();
+  assert.match(strings(far.mod.render()), /Recent isn't available for folders on another machine\./);
+  assert.doesNotMatch(strings(far.mod.render()), /Files that change here/);
+  const near = await ready();
+  click(near, 'files-tab-recent');
+  await near.flush();
+  assert.match(strings(near.mod.render()), /Files that change here show up in this list\./);
 });

@@ -46,7 +46,7 @@ The panel icon at the far right of the tab bar hides or shows the right panel wi
 ] }
 ```
 
-`props.target` names another layout node to toggle; the default is `panel`. The included `keys.json` binds **Cmd+Shift+B** on macOS to `better-sidebar.toggle-panel`; merge it into `~/.config/herdr-app/keys.json`. The command only works while this block is in the layout.
+`props.target` names another layout node to toggle; the default is `panel`. The included `keys.json` binds **Cmd+Shift+B** on macOS to `better-sidebar.toggle-panel` (and **Cmd+Shift+E** to Files, below); merge it into `~/.config/herdr-app/keys.json`. The command only works while this block is in the layout.
 
 ## Install
 
@@ -130,7 +130,7 @@ A block with `"props": { "view": "switcher" }` draws the lists' tabs plus Files,
 
 - Files runs `layout.select {stack: "sidebar-body", child: "files"}`; Spaces and Agents select `spaces` and set its tab. The tab is shared (`better-sidebar.tab`), so the switcher and the lists agree; a tab kept before that starts it.
 - The New space button and the Agents sort menu move to the switcher's right.
-- On the rail, the lists show a Files icon: it widens the sidebar, as `»` does, then shows Files. If Files is left showing on the rail, the switcher shows a way back to the lists.
-- Bind a key to `better-sidebar.files` to show Files and give it the keyboard (`better-files.focus`).
+- On the rail, the lists show a Files icon: it widens the sidebar, as `»` does, then shows Files.
+- Bind a key to `better-sidebar.files` to show Files and give its tree the keyboard (`better-files.focus`). The included `keys.json` binds **Cmd+Shift+E**: `"cmd-shift-e": "better-sidebar.files"`. It does nothing while the whole sidebar is hidden: show the sidebar first (**Cmd+B**, `layout.toggle:sidebar`).
 
 Without a `sidebar-body` stack nothing changes. Code: `views/switcher.js`, `views/switcher-state.js`; tests: `tests/switcher.test.cjs` and the end of `tests/lists.test.cjs`.

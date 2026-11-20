@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const src = fs.readFileSync(path.join(__dirname, '../mods/better-files/files/recent.js'), 'utf8').replace(/^export /gm, '');
-const R = new Function(`${src}\nreturn { SKIP_DIRS, skipped, record, ago, recentRows, KINDS, kindsOf, relativeIn, dropFolders };`)();
+const R = new Function(`${src}\nreturn { SKIP_DIRS, skipped, record, ago, recentRows, KINDS, kindsOf, relativeIn, dropFolders, isTempName, keepRecorded, dropGoneTemp };`)();
 
 test('150 distinct paths keep 100, newest first', () => {
   let list = [];
@@ -71,4 +71,28 @@ test('dropFolders: entries known to be folders go, unknown and gone stay; same l
   assert.deepEqual(R.dropFolders(list, kinds), [{ path: 'a', at: 3 }, { path: 'b', at: 1 }]);
   const none = new Map([['a', '-']]);
   assert.equal(R.dropFolders(list, none), list);
+});
+
+test('isTempName: editor and atomic-save temp files', () => {
+  for (const name of ['switcher.js.tmp.42404.1036c6259f16', '.!66034!agents.js', 'notes.md~', '.main.go.swp'])
+    assert.ok(R.isTempName(name), name);
+  for (const name of ['agents.js', 'tmp.js', '.tmp', 'a!1!b.js', 'swp.md', 'temp.tmpl'])
+    assert.ok(!R.isTempName(name), name);
+});
+
+test('keepRecorded: a path already gone is skipped unless the list knows it', () => {
+  const list = [{ path: 'src/known.js', at: 1 }];
+  assert.ok(R.keepRecorded('src/new.js', 'f', list));
+  assert.ok(R.keepRecorded('src/new.js', undefined, list), 'unknown kind: recorded');
+  assert.ok(!R.keepRecorded('views/.!66034!agents.js', '-', list), 'gone and new: skipped');
+  assert.ok(!R.keepRecorded('src/x.js.tmp.1.abc', '-', list));
+  assert.ok(R.keepRecorded('src/known.js', '-', list), 'a known file deleted still shows');
+});
+
+test('dropGoneTemp: gone temp entries go, the rest stay, same list when none', () => {
+  const list = [{ path: 'a.js', at: 3 }, { path: 'views/.!1!a.js', at: 2 }, { path: 'b.js.tmp.9.f', at: 1 }, { path: 'c.js~', at: 0 }];
+  const kinds = new Map([['a.js', '-'], ['views/.!1!a.js', '-'], ['b.js.tmp.9.f', '-'], ['c.js~', 'f']]);
+  assert.deepEqual(R.dropGoneTemp(list, kinds).map((e) => e.path), ['a.js', 'c.js~']);
+  const clean = [{ path: 'a.js', at: 1 }];
+  assert.equal(R.dropGoneTemp(clean, kinds), clean);
 });

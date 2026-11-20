@@ -37,6 +37,8 @@ export const recentMethods = {
       (path) => known?.get(path) !== "-",
       Date.now(),
     );
+    // Nothing watches a folder on another machine, so nothing is recorded there.
+    if (this.on) return body.child(Message("Recent isn't available for folders on another machine."));
     if (!rows.length) return body.child(Message("Files that change here show up in this list."));
     body.children(rows.map((r) => this.recentRow(r, t)));
   },
