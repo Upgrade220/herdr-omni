@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '../mods/better-files');
-const FILES = ['settings.js', 'files/model.js', 'files/diff-handoff.js', 'files/file-icons.js', 'files/filter.js', 'views/ui.js', 'files/shell.js', 'files/git-extras.js', 'files/recent.js', 'files/reads.js', 'actions/open.js', 'actions/outside.js', 'actions/agents.js', 'actions/menus.js', 'views/tree.js', 'views/filter.js', 'views/tools.js', 'views/keys.js', 'views/viewer.js', 'views/context-menu.js', 'views/git.js', 'views/recent.js', 'main.js'];
+const FILES = ['settings.js', 'files/model.js', 'files/diff-handoff.js', 'files/file-icons.js', 'files/filter.js', 'views/ui.js', 'files/shell.js', 'files/git-extras.js', 'files/recent.js', 'files/expand.js', 'files/reads.js', 'actions/open.js', 'actions/outside.js', 'actions/agents.js', 'actions/menus.js', 'views/tree.js', 'views/filter.js', 'views/tools.js', 'views/keys.js', 'views/viewer.js', 'views/context-menu.js', 'views/git.js', 'views/recent.js', 'main.js'];
 // syntax.js keeps a scope of its own, as a module does: its languageOf isn't model.js's.
 const lexer = fs.readFileSync(path.join(root, 'syntax.js'), 'utf8').replace(/^export /gm, '');
 const source = `const { highlightLines, tokenizeLine, syntaxColors, languageOf: lexerLanguage, WHOLE_FILE_LINES, fenceLanguage } = (() => {\n${lexer}\nreturn { highlightLines, tokenizeLine, syntaxColors, languageOf, WHOLE_FILE_LINES, fenceLanguage };\n})();\n`
