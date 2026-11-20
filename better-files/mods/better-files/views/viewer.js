@@ -19,7 +19,6 @@ import {
 } from "../files/model.js";
 import { WHOLE_FILE_LINES, fenceLanguage, highlightLines, languageOf as lexerLanguage, syntaxColors, tokenizeLine } from "../syntax.js";
 import { viewerEntries } from "../actions/open.js";
-import { gitOn } from "../files/reads.js";
 import { BUSY, pickCopyImage, pickRm } from "../files/shell.js";
 import { editorId, foundEditors } from "../actions/outside.js";
 import { fileIcon, isLight } from "../files/file-icons.js";
@@ -128,14 +127,6 @@ export const viewerMethods = {
   readHunks(cx) {
     const file = this.file;
     if (!file || !this.gutterOn || this.diffing || isImage(file.path)) return;
-    // Git off: no changed-line tints, so nothing to ask.
-    if (!gitOn()) {
-      if (this.hunks?.length) {
-        this.hunks = [];
-        cx.notify();
-      }
-      return;
-    }
     this.diffing = true;
     cx.spawn(async (cx) => {
       const git = (args) =>
@@ -254,7 +245,7 @@ export const viewerMethods = {
   linesView() {
     const lines = this.fileLines();
     const runs = this.lineRuns(lines);
-    const rows = buildRows(lines, gitOn() ? (this.hunks ?? []) : [], this.openHunks);
+    const rows = buildRows(lines, this.hunks ?? [], this.openHunks);
     const height = rowHeight();
     const sized = rows.some((row) => row.type === "removed")
       ? rows.map((row) => (row.type === "removed" ? REMOVED_ROW : height))
@@ -712,7 +703,7 @@ export const viewerMethods = {
       cx.notify();
     };
     // Only changes that replaced something have old lines to show.
-    const openable = this.gutterOn && !previewing && gitOn() ? (this.hunks ?? []).filter((hunk) => hunk.old.length).map(hunkKey) : [];
+    const openable = this.gutterOn && !previewing ? (this.hunks ?? []).filter((hunk) => hunk.old.length).map(hunkKey) : [];
     const allOpen = openable.length > 0 && openable.every((key) => this.openHunks.has(key));
     return h_flex()
       .id("viewer-actions")

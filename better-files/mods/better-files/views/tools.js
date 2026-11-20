@@ -1,7 +1,6 @@
 // The tree's tools, beside the filter: dotfiles, expand all (herdr-omni) and collapse all.
 import { foldersTo } from "../files/filter.js";
 import { childFolders, EXPAND_MAX } from "../files/expand.js";
-import { gitOn } from "../files/reads.js";
 import { IconButton } from "./ui.js";
 
 const DOTFILES = "better-files.dotfiles";
@@ -50,7 +49,7 @@ export const toolMethods = {
           const parent = queue.shift();
           if (!this.entries.has(parent)) await this.loadFolder(parent, root, on, key);
           if (this.key !== key) return;
-          const ignored = gitOn() ? this.ignoredSet : null;
+          const ignored = this.ignoredSet;
           for (const rel of childFolders(this.entries.get(parent), parent, { dotfiles: this.dotfiles, ignored })) {
             if (opened >= EXPAND_MAX) break;
             this.folders.add(rel);

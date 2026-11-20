@@ -15,7 +15,6 @@ const REINDEX_MS = 30000;
 // A folder that keeps changing, such as one an agent is writing in, is read again at most this often.
 const RESTALE_MS = 5000;
 // Off by the header's branch button: then Git is not asked anything for the tree.
-export const gitOn = () => shared("better-files.git") !== false;
 const RECENT_CHECK_MS = 5000;
 const SKIPPED = [".git", "node_modules", ".venv", "__pycache__", "target", "dist", ".next"];
 
@@ -23,8 +22,7 @@ const SKIPPED = [".git", "node_modules", ".venv", "__pycache__", "target", "dist
 // files stay out, else find without the folders that are usually huge, cut at a size. A folder
 // Git ignores, such as node_modules, gets an empty list from Git, so find reads it instead.
 // With Git off (useGit false) the list is find's alone, ignored files included.
-async function everyFile(root, on, useGit = true) {
-  if (!useGit) return findEvery(root, on);
+async function everyFile(root, on) {
   const lsFiles = (...flags) =>
     exec("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.quotepath=off", "ls-files", "-z", ...flags], { cwd: root, on }).catch(
       () => null,
@@ -138,8 +136,6 @@ export const readMethods = {
     if (!cwd || this.loading === key) return;
     const token = key;
     this.loading = key;
-    // A run starting now sees every change asked for so far.
-    this.refreshAgain = false;
     cx.notify();
     cx.spawn(async (cx) => {
       try {
@@ -155,8 +151,6 @@ export const readMethods = {
       } finally {
         if (this.loading === token) this.loading = null;
         cx.notify();
-        // Asked again while this run was going (the Git switch): one more run, now.
-        if (this.refreshAgain && this.key === token) this.refresh(cx);
       }
     });
   },
@@ -169,11 +163,6 @@ export const readMethods = {
 
   // Writes nothing under .git, or the folder watch would see its own read and refresh again.
   async loadMarks(root, on, token) {
-    if (!gitOn()) {
-      this.marks = {};
-      this.gitInfo = null;
-      return;
-    }
     const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: root, on }).catch(
       () => null,
     );
@@ -217,7 +206,7 @@ export const readMethods = {
     ]);
     // A repo with no commits has no HEAD to diff against.
     const numstat = head?.code === 0 ? await git(NUMSTAT) : null;
-    if (this.key !== token || !gitOn()) return;
+    if (this.key !== token) return;
     const top = markKey(this.top);
     const here = markKey(root);
     const lines = numstat?.code === 0 ? parseNumstat(numstat.stdout) : {};
@@ -255,12 +244,8 @@ export const readMethods = {
   // changes on disk but at most every 5 seconds, and every 30 for a folder that can't be watched.
   ensureIndex(cx) {
     const { root, on, key } = this;
-    // A list read with Git on hides ignored files; one read with it off doesn't: the switch
-    // makes the other list due.
-    const git = gitOn();
-    const reading = `${git}:${key}`;
-    if (!root || !this.filterText() || this.indexing === reading) return;
-    const index = this.index?.key === key && this.index.git === git ? this.index : null;
+    if (!root || !this.filterText() || this.indexing === key) return;
+    const index = this.index?.key === key ? this.index : null;
     const age = index ? Date.now() - index.at : Infinity;
     if (index && age < (index.stale ? RESTALE_MS : REINDEX_MS)) {
       // The last change before a quiet spell still gets read, once the wait is over.
@@ -273,20 +258,20 @@ export const readMethods = {
       }
       return;
     }
-    this.indexing = reading;
+    this.indexing = key;
     cx.spawn(async (cx) => {
       try {
         // A change on disk while the list is read leaves it stale, to be read again.
         const changes = this.changes;
-        const listing = await everyFile(root, on, git);
-        if (this.key === key && gitOn() === git) {
-          this.index = { key, git, at: Date.now(), stale: this.changes !== changes, ...indexOf(listing) };
+        const listing = await everyFile(root, on);
+        if (this.key === key) {
+          this.index = { key, at: Date.now(), stale: this.changes !== changes, ...indexOf(listing) };
           this.indexError = null;
         }
       } catch (e) {
         if (this.key === key) this.indexError = e.message ?? String(e);
       } finally {
-        if (this.indexing === reading) this.indexing = null;
+        if (this.indexing === key) this.indexing = null;
         cx.notify();
       }
     });

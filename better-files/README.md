@@ -134,10 +134,9 @@ See [LICENSE](LICENSE) and [NOTICE](NOTICE) for attribution.
 
 This copy is adapted from [munza/herdr-mods](https://github.com/munza/herdr-mods/tree/main/better-files) (v1.6.1). The changes:
 
-- A Git on/off setting (shared key `better-files.git`, default on) that hides the change marks, lines and diff actions when off.
 - Git extras for the tree, with ideas from [cybertron288/herdr-mods filetree](https://github.com/cybertron288/herdr-mods/tree/main/filetree) (MIT).
 - A Recent tab (shared key `better-files.recent`) listing the files that changed on disk in the shown folder (by an agent, an editor or you), newest first. Editors' temp files are left out. It isn't available for folders on another machine.
 - Expand all, beside Collapse all: opens every folder (up to 300), leaving out `node_modules` and the other heavy folders, Git-ignored folders, and dotfolders while dotfiles are hidden.
 - Show diff, which opens a file's changes in a git-graph Diff tab.
-- `props.embedded: true` draws it like the lists beside it in the sidebar: flat on the sidebar's colour, no panel border or title, Tree | Recent and the buttons on one line, the folder and branch on the line under them, rows at the lists' size.
+- `props.embedded: true` draws it like the lists beside it in the sidebar: flat on the sidebar's colour, no panel border or title, Tree | Recent and the folder and refresh buttons on one line, the folder and branch on the line under them, rows at the lists' size.
 - A Files tab in the left sidebar, next to the Spaces and agents lists: put the mod (with `"embedded": true`) in a `files` child of a `sidebar-body` stack and add a `better-sidebar` switcher block (see [better-sidebar](../better-sidebar/README.md#spaces--agents--files)). `Cmd+Shift+E` (`better-sidebar.files` in `keys.json`) shows it and focuses the tree.

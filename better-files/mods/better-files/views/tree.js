@@ -7,7 +7,6 @@ import { baseName, holdsChange, markKey, TOTAL_ROWS } from "../files/model.js";
 import { viewerEntries } from "../actions/open.js";
 import { editorId, foundEditors } from "../actions/outside.js";
 import { agentName } from "../actions/agents.js";
-import { gitOn } from "../files/reads.js";
 import { TEXT, Badge, Button, Chevron, FileIcon, Icon, markColor, IconButton, Message, Panel, PanelHeader, StatusLetter, TextBox } from "./ui.js";
 
 const INDENT = 14;
@@ -28,7 +27,7 @@ export const treeMethods = {
   targetOf(relative, dir) {
     const path = `${this.root}/${relative}`;
     const key = markKey(path);
-    const change = gitOn() ? this.marks[key] : null;
+    const change = this.marks[key];
     const top = this.top && markKey(this.top);
     return {
       path,
@@ -68,7 +67,7 @@ export const treeMethods = {
   row(relative, name, dir, depth, t, match = null) {
     const path = `${this.root}/${relative}`;
     const open = match ? match.open : this.folders.has(relative);
-    const marks = gitOn() ? this.marks : {};
+    const marks = this.marks;
     const change = marks[markKey(path)];
     const color = dir ? (holdsChange(marks, path) ? t.ansi3 : null) : markColor(change?.mark, t);
     const ignored = !color && this.ignoredRow(relative, dir);
@@ -285,7 +284,6 @@ export const treeMethods = {
 
   headerButtons(t) {
     return [
-      this.gitToggle(t),
       ...(this.root && !this.on ? [this.folderMenu(t)] : []),
       IconButton({
         id: "files-refresh",

@@ -1,10 +1,8 @@
-// Git in the sidebar: the header's Tree | Recent and Git switch, the branch line under it,
+// Git in the sidebar: the header's Tree | Recent, the branch line under it,
 // and each row's +N -N, a folder's changed count, and the dimming of what Git ignores.
 // Ideas from cybertron288/herdr-mods filetree (MIT).
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { setShared } from "herdr";
-import { gitOn } from "../files/reads.js";
 import { isIgnored } from "../files/git-extras.js";
 import { TEXT, Icon, TextButton } from "./ui.js";
 
@@ -42,41 +40,10 @@ export const gitMethods = {
     cx.notify();
   },
 
-  gitToggle(t) {
-    const on = gitOn();
-    const label = on ? "Git on: click to hide changes" : "Git off: click to show changes";
-    return div()
-      .id("files-git")
-      .size(26)
-      .flex_none()
-      .flex()
-      .items_center()
-      .justify_center()
-      .rounded(6)
-      .text_color(on ? t.accent : t.dim)
-      .cursor_pointer()
-      .accessibility_label(label)
-      .tooltip(label)
-      .hover((el) => el.bg(t.hover))
-      .on_click((_e, cx) => {
-        cx.stop_propagation();
-        setShared("better-files.git", !on);
-        if (on) {
-          this.marks = {};
-          this.gitInfo = null;
-        }
-        // A run already going read Git's old state: one more follows it (refresh runs now
-        // when none is going). The filter's list is read again for the other state too.
-        this.refreshAgain = true;
-        this.refresh(cx);
-        cx.notify();
-      })
-      .child(Icon("branch", 15));
-  },
 
   // branch  ↑1 ↓2  +10 −3  [bar of modified, added, deleted]
   summaryLine(t) {
-    const s = gitOn() ? this.gitInfo?.summary : null;
+    const s = this.gitInfo?.summary;
     if (!s) return null;
     const total = s.modified + s.added + s.deleted;
     const part = (n, color) => div().h(4).flex_none().w((BAR * n) / total).bg(color);
@@ -119,7 +86,7 @@ export const gitMethods = {
 
   // `+N −N` after a changed file, the changed count after a folder.
   rowExtras(relative, dir, t) {
-    const info = gitOn() ? this.gitInfo : null;
+    const info = this.gitInfo;
     if (!info) return null;
     if (dir) {
       const n = info.counts[relative];
@@ -136,7 +103,7 @@ export const gitMethods = {
   },
 
   ignoredRow(relative, dir) {
-    const set = gitOn() ? this.gitInfo?.ignored : null;
+    const set = this.gitInfo?.ignored;
     return Boolean(set?.size) && isIgnored(set, dir ? `${relative}/` : relative);
   },
 };
