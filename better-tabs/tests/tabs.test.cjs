@@ -638,18 +638,15 @@ test("a dragged unnamed tab's preview shows its title too", () => {
 
 test("an inactive tab shows its close button while the pointer is over it", () => {
   const h = harness();
-  const hidden = (el, id) => "invisible" in (h.find(el, id)?.attrs ?? {});
   let el = h.tabs.render(h.cx);
-  // Every tab keeps the button's room, so nothing moves when it appears.
-  assert.ok(h.find(el, "close-t2"));
-  assert.equal(hidden(el, "close-t1"), false);
-  assert.equal(hidden(el, "close-t2"), true);
+  assert.ok(h.find(el, "close-t1"));
+  // At rest an inactive tab has no button and no room kept for one.
+  assert.equal(h.find(el, "close-t2"), undefined);
   h.find(el, "tab-t2").handlers.on_hover(true, h.cx);
   el = h.tabs.render(h.cx);
-  assert.equal(hidden(el, "close-t2"), false);
   h.find(el, "close-t2").handlers.on_click({}, h.cx);
   assert.deepEqual(JSON.parse(JSON.stringify(h.calls.at(-1))), { name: "tab.close", args: { id: "t2" } });
   h.find(el, "tab-t2").handlers.on_hover(false, h.cx);
   el = h.tabs.render(h.cx);
-  assert.equal(hidden(el, "close-t2"), true);
+  assert.equal(h.find(el, "close-t2"), undefined);
 });
