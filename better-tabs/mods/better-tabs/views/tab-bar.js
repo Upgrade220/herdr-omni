@@ -93,10 +93,22 @@ export const tabBarMethods = {
       .when(["blocked", "done"].includes(tab.status), (el) =>
         el.child(div().size(6).rounded(3).bg(t[tab.status])),
       )
-      .when(tab.active, (el) => el.child(this.closeTabButton(tab)))
+      // herdr-omni: every tab keeps room for its close button, shown on the active tab and on
+      // the one under the pointer, so closing a tab doesn't need selecting it first.
+      .on_hover((hovered, cx) => this.hoverClose(tab.id, hovered, cx))
+      .child(
+        this.closeTabButton(tab).when(!tab.active && this.hoveredTab !== tab.id, (el) => el.invisible()),
+      )
       .when(drag?.active && drag.target?.id === tab.id, (el) =>
         el.child(DropLine(drag.target.after)),
       );
+  },
+
+  hoverClose(id, hovered, cx) {
+    const next = hovered ? id : this.hoveredTab === id ? null : this.hoveredTab;
+    if (next === this.hoveredTab) return;
+    this.hoveredTab = next;
+    cx.notify();
   },
 
   closeTabButton(tab) {
