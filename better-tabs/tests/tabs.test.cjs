@@ -635,3 +635,18 @@ test("a dragged unnamed tab's preview shows its title too", () => {
   h.find(el, "tab-t1").handlers["on_mouse_down:left"]({ position: { x: 20, y: 15 }, click_count: 1 }, h.cx);
   assert.equal(h.tabs.tabDrag.label, "Fix totals");
 });
+
+test("an inactive tab shows its close button while the pointer is over it", () => {
+  const h = harness();
+  let el = h.tabs.render(h.cx);
+  assert.ok(h.find(el, "close-t1"));
+  // At rest an inactive tab has no button and no room kept for one.
+  assert.equal(h.find(el, "close-t2"), undefined);
+  h.find(el, "tab-t2").handlers.on_hover(true, h.cx);
+  el = h.tabs.render(h.cx);
+  h.find(el, "close-t2").handlers.on_click({}, h.cx);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.at(-1))), { name: "tab.close", args: { id: "t2" } });
+  h.find(el, "tab-t2").handlers.on_hover(false, h.cx);
+  el = h.tabs.render(h.cx);
+  assert.equal(h.find(el, "close-t2"), undefined);
+});
