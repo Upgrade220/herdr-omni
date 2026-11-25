@@ -93,25 +93,11 @@ export const tabBarMethods = {
       .when(["blocked", "done"].includes(tab.status), (el) =>
         el.child(div().size(6).rounded(3).bg(t[tab.status])),
       )
-      .when(tab.active, (el) => el.child(this.closeTabButton(tab)))
-      // herdr-omni: the tab under the pointer shows a close button too, floating over the end
-      // of its title on the tab's hover colour, so nothing moves and there's no gap at rest.
+      // herdr-omni: the tab under the pointer shows its close button too, so closing a tab
+      // doesn't need selecting it first; the tab grows to fit it while hovered.
       .on_hover((hovered, cx) => this.hoverClose(tab.id, hovered, cx))
-      .when(!tab.active && this.hoveredTab === tab.id && !drag?.active, (el) =>
-        el.child(
-          div()
-            .absolute()
-            .top(0)
-            .bottom(0)
-            .right(0)
-            .pl(6)
-            .pr(4)
-            .flex()
-            .items_center()
-            .rounded_r(7)
-            .bg(t.hover)
-            .child(this.closeTabButton(tab)),
-        ),
+      .when(tab.active || (this.hoveredTab === tab.id && !drag?.active), (el) =>
+        el.child(this.closeTabButton(tab)),
       )
       .when(drag?.active && drag.target?.id === tab.id, (el) =>
         el.child(DropLine(drag.target.after)),
