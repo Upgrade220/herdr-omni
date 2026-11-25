@@ -117,3 +117,19 @@ export const commitLabel = (stagedCount, workCount, conflicted = false) =>
 // The full view's Changes column: 320 by default, at least 240, at most half the pane (`total`, unknown before it's measured).
 export const CHANGES_W = 320, CHANGES_MIN = 240;
 export const clampChangesWidth = (w, total) => Math.round(Math.max(CHANGES_MIN, Math.min((total ?? Infinity) * 0.5, w)));
+
+// herdr-omni: the Push button. The branch's upstream ("origin/main") and how many commits it has
+// that the upstream doesn't, both read with the history; each fails (and reads as none) without one.
+export const UPSTREAM = ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"];
+export const AHEAD = ["rev-list", "--count", "@{u}..HEAD"];
+
+// What Push offers: with an upstream, `git push` (greyed out with nothing to push); without one,
+// Publish branch, through the push dialog that picks a remote and sets the upstream. Null on a detached
+// HEAD or in a repository with no remote.
+export function pushPlan({ current, upstream, ahead, remotes }) {
+  if (!current || !remotes?.length) return null;
+  if (!upstream) return { label: "Publish branch", ahead: 0, enabled: true, tooltip: `Push ${current} and set its upstream`, dialog: { type: "push", name: current } };
+  return ahead > 0
+    ? { label: "Push", ahead, enabled: true, args: [["push"]] }
+    : { label: "Push", ahead: 0, enabled: false, tooltip: "Nothing to push", args: [["push"]] };
+}
