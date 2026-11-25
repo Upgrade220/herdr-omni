@@ -6,6 +6,7 @@
 //   views/drags.js         dragging tabs and toolbar actions
 //   views/tab-bar.js       the bar: tabs, +, toolbar, ⋮
 //   views/menu.js          the ⋮ menu and toolbar action buttons
+//   views/new-menu.js      the + menu, when settings name its agents
 // actions/ holds the logic with no drawing, views/ui.js the shared look.
 import { View } from "gpui-kit";
 import { shared, setShared, nextCommand, props, notify } from "herdr";
@@ -16,9 +17,15 @@ import { arrangementMethods } from "./views/arrangement.js";
 import { dragMethods, DRAG_KEY, DRAG_TIMEOUT_MS } from "./views/drags.js";
 import { tabBarMethods } from "./views/tab-bar.js";
 import { menuMethods } from "./views/menu.js";
+import { newMenuMethods } from "./views/new-menu.js";
 
 // Preferences a person may change in the installed mod.json under `settings`.
-const DEFAULT_SETTINGS = { tabs: { max_width: 170, drag_delay: "400ms" }, menu: { width: 240 } };
+// new_menu.agents: the agents the + menu offers, each { name, run, icon? }; empty keeps Herdr's menu.
+const DEFAULT_SETTINGS = {
+  tabs: { max_width: 170, drag_delay: "400ms" },
+  menu: { width: 240 },
+  new_menu: { agents: [] },
+};
 
 const DEFAULTS = {
   rememberPanels: { container: "panel", stack: "panel-body" },
@@ -63,7 +70,11 @@ class Tabs extends View {
     } catch {
       /* Ignore malformed saved preferences. */
     }
-    if (this.config().mode !== "overflow") {
+    if (this.config().mode === "new-menu") {
+      this.menuFocus = cx.focus_handle?.();
+      this.menuFocus?.focus();
+    }
+    if (!this.config().mode) {
       // Synchronization can issue layout commands, so it must not run in render.
       this.syncPanel();
       cx.timer.every(300, () => {
@@ -105,6 +116,7 @@ Object.assign(
   dragMethods,
   tabBarMethods,
   menuMethods,
+  newMenuMethods,
 );
 
 export default Tabs;

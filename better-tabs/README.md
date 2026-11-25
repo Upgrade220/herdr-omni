@@ -77,6 +77,16 @@ Add a `settings` block to the installed `mods/better-tabs/mod.json` with only wh
 
 `tabs.max_width` caps a tab's width in pixels. `tabs.drag_delay` is how long a press must last before a drag can start. `menu.width` sizes the ⋮ menu.
 
+`new_menu.agents` (herdr-omni) picks the agents the **+** menu offers, in order, each started with its own command. Left empty, **+** opens Herdr's own menu with every agent it knows:
+
+```json
+"settings": { "new_menu": { "agents": [
+  { "name": "Claude Code", "run": ["claude", "--dangerously-skip-permissions"] }
+] } }
+```
+
+`icon` is optional and defaults to Herdr's `icons/<command>.svg`. `sync.sh` keeps the installed `settings` when it copies the mod.
+
 ## Upgrading from 2.x
 
 3.0 removes options nothing used: `hooks.js`, buttons from other mods (`contributions`), the `mod-tab`, `overlay`, `toggle-stack`, `sequence`, `shared` and `hook` actions, badges, the `enabledWhen`, `activeWhen` and `disabled` conditions, `iconOnly`, `order`, `overflow`, `maxButtons`, `toolbarId`, `commands`, `modIcons`, `tabMaxWidth`, `closeButtons`, `programIcons`, `statusIndicators`, `newButton`, `sidebar` and mouse-wheel tab switching. Tabs now wrap instead of scrolling.
