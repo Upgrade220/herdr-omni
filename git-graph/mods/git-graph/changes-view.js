@@ -7,7 +7,8 @@ import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui
 import { exec, shared, setShared } from "herdr";
 import { gitError } from "./git.js";
 import { splitChanges, changeCount, fileTree, visibleRows, stageArgs, stageAllArgs, unstageArgs, unstageAllArgs,
-  discardPlan, commitPlan, commitLabel, swapDraft, rowSource } from "./changes.js";
+  discardPlan, commitPlan, commitLabel, swapDraft, rowSource, pushPlan } from "./changes.js";
+import { openDialog } from "./act.js";
 import { openDiff } from "./diff-open.js";
 import { followFileIcons, fileIcon, isLight } from "./file-icons.js";
 import { icon } from "./menu.js";
@@ -85,7 +86,7 @@ export class ChangesView {
       } catch (e) {
         if (this.root === root) this.error = String(e?.message ?? e);
       } finally {
-        this.busy = false;
+        this.busy = false; this.pushing = false;
         setShared("git-graph.changed", Date.now());
         this.owner.refreshNow(cx);
         cx.notify();
@@ -110,6 +111,20 @@ export class ChangesView {
   }
 
   conflicted() { return this.work.some((f) => f.s === "!"); }
+
+  // herdr-omni: Push beside the commit box; Publish opens the push dialog to pick a remote.
+  pushPlan() {
+    const o = this.owner;
+    return pushPlan({ current: o.current, upstream: o.upstream, ahead: o.ahead, remotes: o.remoteNames });
+  }
+
+  push(cx) {
+    const plan = this.pushPlan();
+    if (!plan?.enabled || this.busy) return;
+    if (plan.dialog) { if (this.owner.ctx) openDialog(plan.dialog, this.owner.ctx); return; }
+    this.pushing = true;
+    this.run(plan.args, cx, () => {});
+  }
 
   setTree(tree, cx) { this.tree = tree; localStorage.setItem("tree", String(tree)); cx.notify(); }
   setCommitOpen(open, cx) { this.commitOpen = open; localStorage.setItem("commitOpen", String(open)); cx.notify(); }
@@ -204,7 +219,8 @@ export class ChangesView {
       .text_color(this.commitOpen ? t.foreground : t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click((_e, cx) => this.setCommitOpen(!this.commitOpen, cx))
       .child(svg(icon(this.commitOpen ? "chevron-down" : "chevron-right")).size(12).flex_none().text_color(t.dim))
-      .child(this.commitOpen ? "Commit" : "Commit…");
+      .child(div().flex_1().child(this.commitOpen ? "Commit" : "Commit…"))
+      .when(Boolean(this.pushPlan()), (e) => e.child(this.pushButton(t)));
     const box = v_flex().flex_none().border_b(1).border_color(t.border).child(fold);
     if (!this.commitOpen) return box;
     const changes = this.staged.length + this.work.length;
@@ -222,6 +238,18 @@ export class ChangesView {
         .when(conflicted && !this.busy, (e) => e.tooltip("Stage each conflicted file once it's resolved"))
         .on_click((_e, cx) => { if (enabled) this.commit(cx); })
         .child(this.busy ? "Working…" : commitLabel(this.staged.length, this.work.length, conflicted))));
+  }
+
+  pushButton(t) {
+    const plan = this.pushPlan(), on = plan.enabled && !this.busy;
+    return h_flex().id("changes-push").h(22).px(8).gap(4).flex_none().items_center().rounded(6).text_size(11.5)
+      .border_1().border_color(t.border).text_color(on ? t.foreground : t.dim)
+      .when(on, (e) => e.cursor_pointer().hover((s) => s.bg(t.raised)))
+      .tooltip(plan.tooltip ?? `Push ${this.owner.current} to ${this.owner.upstream}`)
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); this.push(cx); })
+      .child(svg(icon("push")).size(12).flex_none())
+      .child(this.busy && this.pushing ? "Pushing…" : plan.ahead ? `${plan.label} ↑${plan.ahead}` : plan.label);
   }
 
   lists(t) {

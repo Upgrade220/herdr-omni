@@ -229,3 +229,30 @@ test("uncommittedSource: the side an Uncommitted row's file opens on, from real 
   assert.equal(C.uncommittedSource({ xy: " D", status: "D", untracked: false, staged: false }), "unstaged");
   assert.equal(C.uncommittedSource({ xy: "D ", status: "D", untracked: false, staged: true }), "staged");
 });
+
+test("push: what the Push button offers", () => {
+  const remotes = ["origin"];
+  assert.equal(C.pushPlan({ current: null, upstream: null, ahead: 0, remotes }), null, "detached HEAD");
+  assert.equal(C.pushPlan({ current: "main", upstream: null, ahead: 0, remotes: [] }), null, "no remote");
+  assert.deepEqual(C.pushPlan({ current: "main", upstream: "origin/main", ahead: 2, remotes }),
+    { label: "Push", ahead: 2, enabled: true, args: [["push"]] });
+  assert.deepEqual(C.pushPlan({ current: "main", upstream: "origin/main", ahead: 0, remotes }),
+    { label: "Push", ahead: 0, enabled: false, tooltip: "Nothing to push", args: [["push"]] });
+  assert.deepEqual(C.pushPlan({ current: "feat", upstream: null, ahead: 0, remotes }),
+    { label: "Publish", ahead: 0, enabled: true, tooltip: "Push feat and set its upstream", dialog: { type: "push", name: "feat" } });
+});
+
+test("push: upstream and ahead are read, and the push runs, in a throwaway repo", () => {
+  const remote = mkdtempSync(join(tmpdir(), "gg-remote-")), dir = mkdtempSync(join(tmpdir(), "gg-push-"));
+  git(remote, ["init", "-q", "--bare"]);
+  git(dir, ["init", "-q", "-b", "main"]);
+  git(dir, ["commit", "-q", "--allow-empty", "-m", "one"]);
+  git(dir, ["remote", "add", "origin", remote]);
+  git(dir, ["push", "-q", "-u", "origin", "main"]);
+  git(dir, ["commit", "-q", "--allow-empty", "-m", "two"]);
+  assert.equal(git(dir, C.UPSTREAM).trim(), "origin/main");
+  assert.equal(git(dir, C.AHEAD).trim(), "1");
+  const plan = C.pushPlan({ current: "main", upstream: "origin/main", ahead: 1, remotes: ["origin"] });
+  for (const args of plan.args) spawnSync("git", args, { cwd: dir, env });
+  assert.equal(git(dir, C.AHEAD).trim(), "0");
+});

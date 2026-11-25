@@ -11,7 +11,7 @@ import { perform, openDialog, showChanges } from "./act.js";
 import { icon } from "./menu.js";
 import { available, check, openUpdate, newer } from "./update.js";
 import { ChangesView, TAB_H } from "./changes-view.js";
-import { CHANGES_W, clampChangesWidth, uncommittedSource } from "./changes.js";
+import { CHANGES_W, clampChangesWidth, uncommittedSource, UPSTREAM, AHEAD } from "./changes.js";
 import { MOD, TAB_NAME, LAST_LOC, DIFF_TABS, WORKTREE, pickLoc, lastLocUpdate, gitTabs, sidePanelId, withModIcon } from "./place.js";
 import { openDiff } from "./diff-open.js";
 import { BranchPicker } from "./branch-picker.js";
@@ -98,7 +98,7 @@ const folderState = () => ({
   state: "loading", root: null, on: null, cwd: null, error: null,
   workspace: null, statuses: new Map(), opened: null, skipped: false,
   base: [], commits: [], rows: [], lanes: 1, labels: new Map(), index: new Map(), hasMore: false, limit: PAGE, files: [], ctx: null,
-  head: null, current: null, branches: [], remoteNames: [], signature: null, scope: null, moreAsked: null,
+  head: null, current: null, branches: [], remoteNames: [], upstream: null, ahead: 0, signature: null, scope: null, moreAsked: null,
   selected: null, details: null,
 });
 
@@ -109,11 +109,12 @@ const folderState = () => ({
 // (warm) for its history and refs; its uncommitted row comes when it's shown.
 async function readFolder(cwd, on, { all, remotes, limit, status: withStatus = true }) {
   const git = (args) => exec("git", [...READ, ...args], { cwd, on });
-  const [top, log, head, current, branches, remoteNames, status] = await Promise.all([
+  const [top, log, head, current, branches, remoteNames, status, upstream, ahead] = await Promise.all([
     // One commit past the page says whether there are more, as Git Graph asks.
     exec("git", ["rev-parse", "--show-toplevel"], { cwd, on }), git(logArgs({ all, remotes, limit: limit + 1 })),
     git(["rev-parse", "--verify", "-q", "HEAD"]), git(["symbolic-ref", "-q", "--short", "HEAD"]),
-    git(["for-each-ref", "--format=%(refname)", "refs/heads"]), git(["remote"]), withStatus ? git(STATUS) : null]);
+    git(["for-each-ref", "--format=%(refname)", "refs/heads"]), git(["remote"]), withStatus ? git(STATUS) : null,
+    git(UPSTREAM), git(AHEAD)]);
   if (top.code !== 0) return { state: "norepo", cwd, on };
   // A log that fails without a HEAD is a repository with no commits yet.
   if (log.code !== 0 && head.code === 0) throw new Error(log.stderr.trim());
@@ -124,7 +125,8 @@ async function readFolder(cwd, on, { all, remotes, limit, status: withStatus = t
     branches: branches.stdout.split("\n").filter(Boolean).map((r) => r.replace(/^refs\/heads\//, "")),
     remoteNames: remoteNames.stdout.split("\n").filter(Boolean),
     files: status?.code === 0 ? parseStatus(status.stdout) : [],
-    signature: [log.stdout, head.stdout, current.stdout, branches.stdout, remoteNames.stdout].join("\0"), scope: scopeOf({ all, remotes }),
+    upstream: upstream.code === 0 ? upstream.stdout.trim() || null : null, ahead: ahead.code === 0 ? Number(ahead.stdout.trim()) || 0 : 0,
+    signature: [log.stdout, head.stdout, current.stdout, branches.stdout, remoteNames.stdout, upstream.stdout, ahead.stdout].join("\0"), scope: scopeOf({ all, remotes }),
   };
 }
 
