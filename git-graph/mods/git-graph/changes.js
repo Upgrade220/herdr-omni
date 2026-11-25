@@ -124,11 +124,11 @@ export const UPSTREAM = ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@
 export const AHEAD = ["rev-list", "--count", "@{u}..HEAD"];
 
 // What Push offers: with an upstream, `git push` (greyed out with nothing to push); without one,
-// Publish, through the push dialog that picks a remote and sets the upstream. Null on a detached
+// Publish branch, through the push dialog that picks a remote and sets the upstream. Null on a detached
 // HEAD or in a repository with no remote.
 export function pushPlan({ current, upstream, ahead, remotes }) {
   if (!current || !remotes?.length) return null;
-  if (!upstream) return { label: "Publish", ahead: 0, enabled: true, tooltip: `Push ${current} and set its upstream`, dialog: { type: "push", name: current } };
+  if (!upstream) return { label: "Publish branch", ahead: 0, enabled: true, tooltip: `Push ${current} and set its upstream`, dialog: { type: "push", name: current } };
   return ahead > 0
     ? { label: "Push", ahead, enabled: true, args: [["push"]] }
     : { label: "Push", ahead: 0, enabled: false, tooltip: "Nothing to push", args: [["push"]] };

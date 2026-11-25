@@ -239,7 +239,7 @@ test("push: what the Push button offers", () => {
   assert.deepEqual(C.pushPlan({ current: "main", upstream: "origin/main", ahead: 0, remotes }),
     { label: "Push", ahead: 0, enabled: false, tooltip: "Nothing to push", args: [["push"]] });
   assert.deepEqual(C.pushPlan({ current: "feat", upstream: null, ahead: 0, remotes }),
-    { label: "Publish", ahead: 0, enabled: true, tooltip: "Push feat and set its upstream", dialog: { type: "push", name: "feat" } });
+    { label: "Publish branch", ahead: 0, enabled: true, tooltip: "Push feat and set its upstream", dialog: { type: "push", name: "feat" } });
 });
 
 test("push: upstream and ahead are read, and the push runs, in a throwaway repo", () => {

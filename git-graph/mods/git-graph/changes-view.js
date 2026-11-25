@@ -112,7 +112,7 @@ export class ChangesView {
 
   conflicted() { return this.work.some((f) => f.s === "!"); }
 
-  // herdr-omni: Push beside the commit box; Publish opens the push dialog to pick a remote.
+  // herdr-omni: Push beside the commit box; Publish branch opens the push dialog to pick a remote.
   pushPlan() {
     const o = this.owner;
     return pushPlan({ current: o.current, upstream: o.upstream, ahead: o.ahead, remotes: o.remoteNames });
