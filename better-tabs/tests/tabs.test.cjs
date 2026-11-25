@@ -98,6 +98,7 @@ function harness(config = {}) {
       "views/arrangement.js",
       "views/drags.js",
       "views/menu.js",
+      "views/new-menu.js",
       "views/tab-bar.js",
       "main.js",
     ]
@@ -649,4 +650,41 @@ test("an inactive tab shows its close button while the pointer is over it", () =
   h.find(el, "tab-t2").handlers.on_hover(false, h.cx);
   el = h.tabs.render(h.cx);
   assert.equal(h.find(el, "close-t2"), undefined);
+});
+
+const CLAUDE = { name: "Claude Code", run: ["claude", "--dangerously-skip-permissions"] };
+
+test("+ opens Herdr's own new menu while no agents are set", () => {
+  const h = harness({ buttons: [] });
+  h.find(h.tabs.render(h.cx), "tab-new").handlers.on_click({}, h.cx);
+  assert.equal(h.calls.at(-1).overlay.mod, "new-menu");
+});
+
+test("+ opens this mod's new menu with the agents from settings", () => {
+  const h = harness({ buttons: [] });
+  h.tabs.settings = { ...h.tabs.settings, new_menu: { agents: [CLAUDE] } };
+  h.find(h.tabs.render(h.cx), "tab-new").handlers.on_click({}, h.cx);
+  const overlay = h.calls.at(-1).overlay;
+  assert.equal(overlay.mod, "better-tabs");
+  assert.equal(overlay.props.mode, "new-menu");
+  assert.deepEqual(plain(overlay.props.agents), [CLAUDE]);
+});
+
+test("the new menu lists only the set agents and starts one with its command", () => {
+  const h = harness({ mode: "new-menu", agents: [CLAUDE], overlay: "o1" });
+  const el = h.tabs.render(h.cx);
+  assert.ok(h.find(el, "new-terminal"));
+  assert.ok(h.find(el, "new-space"));
+  assert.equal(h.find(el, "agent-1"), undefined);
+  h.find(el, "agent-0").handlers.on_click({}, h.cx);
+  assert.deepEqual(plain(h.calls.slice(-2)), [
+    { close: "o1" },
+    { name: "tab.new", args: { name: "Claude Code", space: "a", argv: CLAUDE.run } },
+  ]);
+});
+
+test("the new menu's Terminal row opens a plain tab", () => {
+  const h = harness({ mode: "new-menu", agents: [CLAUDE], overlay: "o1" });
+  h.find(h.tabs.render(h.cx), "new-terminal").handlers.on_click({}, h.cx);
+  assert.deepEqual(plain(h.calls.at(-1)), { name: "tab.new", args: { space: "a" } });
 });

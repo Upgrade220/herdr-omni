@@ -171,6 +171,7 @@ export const tabBarMethods = {
 
   render() {
     if (this.config().mode === "overflow") return this.renderOverflow();
+    if (this.config().mode === "new-menu") return this.renderNewMenu();
     const t = theme();
     const bar = h_flex()
       .id("better-tabs-root")
@@ -228,8 +229,12 @@ export const tabBarMethods = {
   // Dropping a tab on the + puts it last.
   newTabButton(tabs) {
     const asLast = (event) => ({ ...event, local_position: { x: Infinity } });
+    // herdr-omni: with agents in settings, + opens this mod's menu offering just those.
+    const agents = this.settings.new_menu?.agents ?? [];
     return this.simple("tab-new", Icon("plus", 14), "New tab", () =>
-      openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 }),
+      agents.length
+        ? this.openNewMenu(agents)
+        : openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 }),
     )
       .on_mouse_move((event, cx) => {
         if (tabs.length) this.hoverTab(tabs.at(-1), asLast(event), cx);

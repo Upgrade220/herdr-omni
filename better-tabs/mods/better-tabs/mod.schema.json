@@ -101,6 +101,44 @@
               "default": 240
             }
           }
+        },
+        "new_menu": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "agents": {
+              "title": "Agents in the + menu",
+              "description": "The agents the + menu offers, in order, each started with its own command. Empty: Herdr's own menu, with every agent it knows.",
+              "type": "array",
+              "default": [],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "run"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "The name shown, and the new tab's name."
+                  },
+                  "run": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "description": "The command and its arguments, e.g. [\"claude\", \"--dangerously-skip-permissions\"]."
+                  },
+                  "icon": {
+                    "type": "string",
+                    "description": "An icon path in the Herdr home. Default: icons/<command>.svg."
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
