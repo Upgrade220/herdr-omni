@@ -6,7 +6,7 @@ import { v_flex, h_flex, InputState } from "gpui-base";
 import { nextDelay } from "../ci/poller.js";
 import { ago } from "./runs.js";
 import { MR_CHIPS, mrCounts, filterMrs, mrNumber } from "./mrs.js";
-import { statusPill, pill, filterChip, searchBox, busyState, message, errorState } from "./ui.js";
+import { button, statusPill, pill, filterChip, searchBox, busyState, message, errorState } from "./ui.js";
 
 export class MrList {
   constructor(owner) {
@@ -63,7 +63,7 @@ export class MrList {
   }
 
   // Controls (filter box and chips with counts) and the rows. `ids` prefixes element ids.
-  render(t, { compact = false, onOpen, ids = "mr" } = {}) {
+  render(t, { compact = false, onOpen, onNew, ids = "mr" } = {}) {
     if (this.error && !this.loaded) return errorState(t, `${ids}-retry`, this.error, (cx) => this.load(cx));
     if (!this.loaded) return busyState(t, "Loading merge requests…");
     const counts = mrCounts(this.mrs, this.me);
@@ -76,7 +76,8 @@ export class MrList {
         onClear: (cx) => { this.filter.set_value(""); cx.notify(); },
       }))
       .child(h_flex().flex_wrap().gap(4).items_center()
-        .children(MR_CHIPS.map((c) => filterChip(t, `${ids}-chip-${c.id}`, c.label, counts[c.id], this.chip === c.id, (cx) => this.setChip(c.id, cx)))));
+        .children(MR_CHIPS.map((c) => filterChip(t, `${ids}-chip-${c.id}`, c.label, counts[c.id], this.chip === c.id, (cx) => this.setChip(c.id, cx))))
+        .when(Boolean(onNew), (e) => e.child(div().flex_1().min_w(0)).child(button(t, `${ids}-new`, "New MR", () => onNew()))));
     const rows = v_flex().flex_1().min_h(0).overflow_y_scroll()
       .children(shown.map((m) => this.row(t, m, { compact, onOpen, ids, kind })))
       .when(!shown.length, (e) => e.child(message(t, typed ? "No MR matches the filter" : this.chip === "review" ? "Nothing to review" : "No open MRs")));

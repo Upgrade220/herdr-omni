@@ -7,6 +7,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { theme, focused, panes, spaces, layout, setShared, checking, run as runCommand } from "herdr";
 import { spaceFullTabs, sideVisible, sidePanelId, OPEN, MRS_KEY, MOD, mrKey } from "./locate.js";
 import { RepoView } from "./repo.js";
+import { openNewMrDialog } from "./new-mr.js";
 import { MrList } from "./mr-list.js";
 import { button, busyState, errorState } from "./ui.js";
 
@@ -44,6 +45,10 @@ export class MrSideView extends RepoView {
     this.showFull(mrKey(this.repo, m.number));
   }
 
+  newMr() {
+    if (this.repo && this.loc) openNewMrDialog({ repo: this.repo, loc: this.loc });
+  }
+
   openFull() {
     this.showFull(MRS_KEY);
   }
@@ -75,7 +80,7 @@ export class MrSideView extends RepoView {
         ? errorState(t, "mrs-repo-retry", this.repoError, (cx) => this.refresh(cx))
         : busyState(t, "Looking for a repository…", "MRs follow the focused terminal.");
     } else {
-      body = this.mrList.render(t, { compact: true, ids: "mrs", onOpen: (m) => this.openInFull(m) });
+      body = this.mrList.render(t, { compact: true, ids: "mrs", onOpen: (m) => this.openInFull(m), onNew: () => this.newMr() });
     }
     return v_flex().id("mrs-root").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .child(header).child(body);

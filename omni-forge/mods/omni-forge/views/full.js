@@ -13,6 +13,7 @@ import { watchKey } from "../ci/watch.js";
 import { ago } from "./runs.js";
 import { Detail, WATCHABLE } from "./detail.js";
 import { LogView } from "./log.js";
+import { openNewMrDialog } from "./new-mr.js";
 import { MrList } from "./mr-list.js";
 import { MrPage } from "./mr-page.js";
 import { Tabs } from "./tabs.js";
@@ -192,6 +193,10 @@ export class FullView extends RepoView {
 
   // ---- render --------------------------------------------------------------------
 
+  newMr() {
+    if (this.repo && this.loc) openNewMrDialog({ repo: this.repo, loc: this.loc });
+  }
+
   render(_cx) {
     const t = theme();
     const log = this.selectedLog();
@@ -211,7 +216,7 @@ export class FullView extends RepoView {
     } else if (log) {
       body = v_flex().flex_1().min_h(0).child(log.render(_cx));
     } else if (mrTab === "mrs") {
-      body = this.mrList.render(t, { ids: "fmr", onOpen: (m, cx) => this.openMr(m.number, cx, m.title) });
+      body = this.mrList.render(t, { ids: "fmr", onOpen: (m, cx) => this.openMr(m.number, cx, m.title), onNew: () => this.newMr() });
     } else if (mrTab === "mr") {
       body = this.mrPage ? this.mrPage.render(t) : busyState(t, "Loading…");
     } else if (this.detail) {
