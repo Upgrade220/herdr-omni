@@ -1,0 +1,137 @@
+{
+ "data": {
+  "project": {
+   "mergeRequest": {
+    "iid": "12",
+    "title": "Add widget",
+    "draft": false,
+    "state": "opened",
+    "webUrl": "https://git.example.org/grp/app/-/merge_requests/12",
+    "updatedAt": "2026-01-03T10:00:00Z",
+    "sourceBranch": "feat-12",
+    "targetBranch": "main",
+    "diffHeadSha": "sha12",
+    "author": {
+     "username": "alice"
+    },
+    "approvalsRequired": 2,
+    "approvedBy": {
+     "nodes": [
+      {
+       "username": "carol"
+      }
+     ]
+    },
+    "reviewers": {
+     "nodes": [
+      {
+       "username": "bob"
+      }
+     ]
+    },
+    "assignees": {
+     "nodes": [
+      {
+       "username": "alice"
+      }
+     ]
+    },
+    "headPipeline": {
+     "id": "gid://gitlab/Ci::Pipeline/1042",
+     "status": "MANUAL"
+    },
+    "resolvableDiscussionsCount": 2,
+    "resolvedDiscussionsCount": 1,
+    "description": "Adds the widget.",
+    "diffStats": [
+     {
+      "path": "src/widget.js",
+      "additions": 10,
+      "deletions": 2
+     },
+     {
+      "path": "README.md",
+      "additions": 1,
+      "deletions": 0
+     }
+    ],
+    "discussions": {
+     "nodes": [
+      {
+       "id": "d1",
+       "resolvable": false,
+       "resolved": false,
+       "notes": {
+        "nodes": [
+         {
+          "id": "gid://gitlab/Note/1",
+          "author": {
+           "username": "alice"
+          },
+          "body": "assigned to @bob",
+          "createdAt": "2026-01-02T10:01:00Z",
+          "system": true,
+          "position": null
+         }
+        ]
+       }
+      },
+      {
+       "id": "d2",
+       "resolvable": true,
+       "resolved": false,
+       "notes": {
+        "nodes": [
+         {
+          "id": "gid://gitlab/Note/2",
+          "author": {
+           "username": "bob"
+          },
+          "body": "Why this?",
+          "createdAt": "2026-01-02T10:02:00Z",
+          "system": false,
+          "position": {
+           "newPath": "src/widget.js",
+           "newLine": 7,
+           "oldPath": "src/widget.js",
+           "oldLine": null
+          }
+         },
+         {
+          "id": "gid://gitlab/Note/3",
+          "author": {
+           "username": "alice"
+          },
+          "body": "Because.",
+          "createdAt": "2026-01-02T10:03:00Z",
+          "system": false,
+          "position": null
+         }
+        ]
+       }
+      },
+      {
+       "id": "d3",
+       "resolvable": true,
+       "resolved": true,
+       "notes": {
+        "nodes": [
+         {
+          "id": "gid://gitlab/Note/4",
+          "author": {
+           "username": "carol"
+          },
+          "body": "General remark",
+          "createdAt": "2026-01-02T10:04:00Z",
+          "system": false,
+          "position": null
+         }
+        ]
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}
