@@ -382,8 +382,9 @@ test("me comes from the detail first, so Revoke shows when the list never loaded
 });
 
 test("no Approve on your own MR", async () => {
-  const s = await ready({ detail: async (n) => ({ ...(await withMr({ author: "me" })(n)), me: "me" }) });
+  const s = await ready({ detail: async (n) => ({ ...(await withMr({ author: "me" })(n)), me: "me" }), capabilities: { mr: { revoke: true } } });
   assert.ok(!s.page.actions(s.page.data.mr).some((a) => a.id === "mr-approve"));
+  assert.ok(!s.page.actions(s.page.data.mr).some((a) => a.id === "mr-revoke"), "no Revoke on your own unapproved MR");
 });
 
 test("a pipeline pill without a run opens the MR in the browser; with a run it opens the run", async () => {

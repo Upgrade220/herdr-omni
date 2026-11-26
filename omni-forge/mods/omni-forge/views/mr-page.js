@@ -156,8 +156,9 @@ export class MrPage {
       return out;
     }
     const mine = Boolean(this.me) && (mr.approvedBy ?? []).includes(this.me);
-    if (!mine && !(this.me && mr.author === this.me)) add("mr-approve", "Approve", (cx) => this.act(cx, "mr-approve", "Approve", () => p.approve(n)), { primary: true });
-    else if (p.capabilities?.mr?.revoke) add("mr-revoke", "Revoke", (cx) => this.act(cx, "mr-revoke", "Revoke", () => p.unapprove(n)));
+    const own = Boolean(this.me) && mr.author === this.me;
+    if (mine) { if (p.capabilities?.mr?.revoke) add("mr-revoke", "Revoke", (cx) => this.act(cx, "mr-revoke", "Revoke", () => p.unapprove(n))); }
+    else if (!own) add("mr-approve", "Approve", (cx) => this.act(cx, "mr-approve", "Approve", () => p.approve(n)), { primary: true });
     add("mr-edit", "Edit", (cx) => this.startEdit(cx));
     add("mr-draft", mr.draft ? "Mark as ready" : "Mark as draft", (cx) => this.act(cx, "mr-draft", mr.draft ? "Mark as ready" : "Mark as draft", () => p.setDraft(n, !mr.draft)));
     add("mr-reviewers", "Reviewers…", (cx) => this.openPeople(cx, "reviewers"));

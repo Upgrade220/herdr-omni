@@ -19,7 +19,6 @@
       "author": {
        "username": "alice"
       },
-      "approvalsRequired": 2,
       "approvedBy": {
        "nodes": [
         {
@@ -61,7 +60,6 @@
       "author": {
        "username": "alice"
       },
-      "approvalsRequired": null,
       "approvedBy": {
        "nodes": []
       },

@@ -14,7 +14,6 @@
     "author": {
      "username": "alice"
     },
-    "approvalsRequired": 2,
     "approvedBy": {
      "nodes": [
       {

@@ -28,6 +28,12 @@ test("mrStateOf", () => {
   assert.equal(mrStateOf("CLOSED"), "closed");
 });
 
+test("MR queries don't ask for approvalsRequired (a paid-tier field; free GitLab rejects the whole query)", async () => {
+  const { exec, calls } = recorder(() => ({ code: 0, stdout: fixture("gitlab-mrs.json"), stderr: "" }));
+  await gitlabProvider(exec, repo).listMrs();
+  assert.ok(calls.length && calls.every((c) => !c.args.join(" ").includes("approvalsRequired")));
+});
+
 test("listMrs maps the fixture", async () => {
   const { exec, calls } = recorder(() => ok(fixture("gitlab-mrs.json")));
   const p = gitlabProvider(exec, repo);
@@ -49,7 +55,7 @@ test("listMrs maps the fixture", async () => {
   assert.equal(a.pipeline, "manual");
   assert.equal(a.pipelineRunId, "1042");
   assert.equal(a.approvals, 1);
-  assert.equal(a.approvalsRequired, 2);
+  assert.equal(a.approvalsRequired, null);
   assert.deepEqual([...a.approvedBy], ["carol"]);
   assert.deepEqual([...a.reviewers], ["bob"]);
   assert.deepEqual([...a.assignees], ["alice"]);

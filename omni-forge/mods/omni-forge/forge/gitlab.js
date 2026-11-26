@@ -34,7 +34,7 @@ function listQuery(branch, limit) {
 
 // unresolved = resolvableDiscussionsCount - resolvedDiscussionsCount: GitLab GraphQL exposes both
 // counts on MergeRequest, so the list needs no discussion nodes.
-const MR_FIELDS = "iid title draft state webUrl updatedAt sourceBranch targetBranch diffHeadSha author{username} approvalsRequired approvedBy{nodes{username}} reviewers{nodes{username}} assignees{nodes{username}} headPipeline{id status} resolvableDiscussionsCount resolvedDiscussionsCount";
+const MR_FIELDS = "iid title draft state webUrl updatedAt sourceBranch targetBranch diffHeadSha author{username} approvedBy{nodes{username}} reviewers{nodes{username}} assignees{nodes{username}} headPipeline{id status} resolvableDiscussionsCount resolvedDiscussionsCount";
 const NOTE_FIELDS = "id author{username} body createdAt system position{newPath newLine oldPath oldLine}";
 const names = (c) => (c?.nodes ?? []).map((u) => u.username);
 
@@ -129,7 +129,8 @@ export function gitlabProvider(exec, { host, path }) {
     pipeline: m.headPipeline ? mapStatus(m.headPipeline.status) : null,
     pipelineRunId: m.headPipeline ? lastId(m.headPipeline.id) : null,
     approvals: names(m.approvedBy).length,
-    approvalsRequired: m.approvalsRequired ?? null,
+    // approvalsRequired is a paid-tier GraphQL field: free GitLab rejects any query that names it.
+    approvalsRequired: null,
     approvedBy: names(m.approvedBy),
     reviewers: names(m.reviewers),
     assignees: names(m.assignees),
