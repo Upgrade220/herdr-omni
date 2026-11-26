@@ -11,9 +11,9 @@ const panes = [
 ];
 const focusOn = (pane, tab) => ({ space: "s1", tab, pane, terminal: panes.find((p) => p.pane === pane)?.terminal ?? null, cwd: panes.find((p) => p.pane === pane)?.cwd ?? null });
 
-function setup({ checking = false, given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes } = {}) {
+function setup({ checking = false, given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes, realPage = false, opened: openedFiles = [] } = {}) {
   const env = { checking, pages: [], focus, shared: { ...shared }, detects: [], opened: [], panes: paneList, logs: [], logTicks: [], logRefreshes: [], drops: [], prunes: [] };
-  const repoOf = (cwd) => ({ kind: "github", host: "github.com", path: `o/${cwd.split("/").pop()}`, url: "" });
+  const repoOf = (cwd) => ({ kind: "github", host: "github.com", path: `o/${cwd.split("/").pop()}`, url: "u" });
   class Detail {
     constructor(owner, runId) { this.runId = runId; env.opened.push(runId); }
     load() {}
@@ -29,7 +29,12 @@ function setup({ checking = false, given = {}, focus = focusOn("pf", "F"), share
     tick() { env.logTicks.push(this.props.jobId); }
     refresh() { env.logRefreshes.push(this.props.jobId); }
   }
-  const { FullView } = load(["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/locate.js", "views/mrs.js", "views/ui.js", "views/mr-list.js", "views/repo.js", "views/tabs.js", "views/full.js"], {
+  const files = ["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/locate.js", "views/mrs.js", "views/ui.js", "views/mr-list.js", "views/repo.js", "views/tabs.js"];
+  if (realPage) files.push("views/people.js", "views/mr-page.js");
+  const { FullView } = load([...files, "views/full.js"], {
+    TextareaState: { new: () => ({ on() {}, value: () => "", set_value() {}, set_auto_grow() {} }) },
+    openMrFile: async (a) => { openedFiles.push(a); return { ok: true }; },
+    openNewMrDialog: (a) => { env.dialogs = (env.dialogs ?? []).concat([a]); },
     InputState: { new: () => ({ on() {}, value: () => "", set_value() {} }) },
     exec: () => {},
     focused: () => env.focus,
@@ -38,14 +43,14 @@ function setup({ checking = false, given = {}, focus = focusOn("pf", "F"), share
     props: () => given,
     shared: (k) => env.shared[k],
     setShared: (k, v) => { env.shared[k] = v; },
-    notify: () => {},
+    notify: (n) => { env.notices = (env.notices ?? []).concat([n]); },
     checking: () => Boolean(env.checking),
     appWindow: () => ({ active: true }),
     detectRepo: async (cwd) => { env.detects.push(cwd); return detect ? detect(cwd) : repoOf(cwd); },
-    providerFor: (repo) => ({ repo, capabilities: {}, listRuns: async () => [] }),
+    providerFor: (repo) => ({ repo, capabilities: {}, listRuns: async () => [], mrDetail: async (n) => ({ mr: { number: n, title: "T" }, description: "", threads: [], files: [] }) }),
     Detail,
     LogView,
-    MrPage,
+    ...(realPage ? {} : { MrPage }),
     appHome: () => "/app",
     cacheRoot: (home) => `${home}/data/omni-forge/mr-cache`,
     mrCacheDir: async ({ repo, machine }) => `/app/data/omni-forge/mr-cache/${repo.host}/${repo.path}.git`,
@@ -67,8 +72,9 @@ test("props.open wins: repo and run detail come from it, no detection", async ()
   assert.deepEqual(env.opened, ["12"]);
   view.follow(cx);
   await settle();
-  assert.deepEqual(env.detects, []);
-  assert.equal(view.repo.path, "g/p");
+  assert.deepEqual(env.detects, ["/w/repo-b"]); // last-loc is tried to learn a folder...
+  assert.equal(view.repo.path, "g/p"); // ...but it is another repo, so it is not taken
+  assert.equal(view.loc.cwd, null);
 });
 
 test("last-loc seeds a new tab", async () => {
@@ -160,7 +166,8 @@ test("shared open for another repo switches to it", async () => {
   await settle();
   assert.deepEqual({ ...view.repo }, { kind: "gitlab", host: "gl.test", path: "g/p" });
   assert.deepEqual(env.opened, ["9"]);
-  assert.deepEqual(env.detects, ["/w/repo-b"]);
+  assert.deepEqual(env.detects, ["/w/repo-b", "/w/repo-b"]); // the second tries last-loc as the folder: another repo, not taken
+  assert.equal(view.loc.cwd, null);
 });
 
 test("shared open: with two full tabs, only the copy that learned the asked tab takes it", async () => {
@@ -433,4 +440,50 @@ test("one copy prunes the local cache once; the other does not", async () => {
   a.view.tick(a.cx);
   await a.settle();
   assert.equal(a.env.prunes.length, 2);
+});
+
+const mrKeyFor = (extra = {}) => JSON.stringify({ kind: "github", host: "github.com", path: "o/repo-a", mr: 5, ...extra });
+
+test("an MR key with cwd and machine seeds the location, so file clicks have a folder", async () => {
+  const opened = [];
+  const { view, env, cx, settle } = setup({ realPage: true, opened, focus: focusOn("pf", "F"), given: { view: "full", open: mrKeyFor({ cwd: "/w/repo-a", machine: "m1" }) } });
+  await settle();
+  assert.equal(view.loc.cwd, "/w/repo-a");
+  assert.equal(view.loc.machine, "m1");
+  assert.equal(view.repo.path, "o/repo-a");
+  await settle();
+  view.mrPage.data = { mr: { number: 5 } };
+  view.mrPage.openFile(cx, "a.js");
+  await settle();
+  assert.equal(opened[0].loc.cwd, "/w/repo-a");
+  assert.equal(opened[0].loc.machine, "m1");
+});
+
+test("an MR key without cwd takes the last focused terminal when it is the same repo", async () => {
+  const opened = [];
+  const { view, env, cx, settle } = setup({ realPage: true, opened, focus: focusOn("pf", "F"), shared: { "omni-forge.last-loc": { cwd: "/w/repo-a", machine: null, branch: "main" } }, given: { view: "full", open: mrKeyFor() } });
+  await settle();
+  assert.equal(view.loc.cwd, "/w/repo-a");
+  assert.equal(view.repo.url, "u"); // detection fills in the remote url
+  view.mrPage.data = { mr: { number: 5 } };
+  view.mrPage.openFile(cx, "a.js");
+  await settle();
+  assert.equal(opened[0].loc.cwd, "/w/repo-a");
+  assert.equal(opened[0].repo.url, "u");
+});
+
+test("an MR key without cwd and a last focused terminal in another repo leaves no folder; New MR says so", async () => {
+  const { view, env, cx, settle } = setup({ realPage: true, focus: focusOn("pf", "F"), shared: { "omni-forge.last-loc": { cwd: "/w/repo-b", machine: null } }, given: { view: "full", open: mrKeyFor() } });
+  await settle();
+  assert.equal(view.loc.cwd, null);
+  view.newMr();
+  assert.equal(env.dialogs, undefined);
+  assert.match(env.notices[0].body, /terminal/);
+});
+
+test("New MR opens the dialog with the learned folder", async () => {
+  const { view, env, settle } = setup({ realPage: true, focus: focusOn("pf", "F"), given: { view: "full", open: mrKeyFor({ cwd: "/w/repo-a", machine: null }) } });
+  await settle();
+  view.newMr();
+  assert.equal(env.dialogs[0].loc.cwd, "/w/repo-a");
 });

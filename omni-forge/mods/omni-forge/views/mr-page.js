@@ -135,7 +135,14 @@ export class MrPage {
     cx.notify();
   }
 
-  get me() { return this.owner.mrList?.me || ""; }
+  // The detail knows the viewer; the list's `me` is only there once the MRs tab was open.
+  get me() { return this.data?.me || this.owner.mrList?.me || ""; }
+
+  // The pipeline pill: the run's tab when there is one, else the MR in the browser.
+  openPipeline(mr, cx) {
+    if (mr.pipelineRunId) this.owner.openRun({ id: mr.pipelineRunId }, cx);
+    else { const url = mrWebUrl(this.repo, this.number, mr); if (url) cx.open_url(url); }
+  }
 
   // The buttons for this MR, in order. Open in browser lives in the top bar.
   actions(mr) {
@@ -149,7 +156,7 @@ export class MrPage {
       return out;
     }
     const mine = Boolean(this.me) && (mr.approvedBy ?? []).includes(this.me);
-    if (!mine) add("mr-approve", "Approve", (cx) => this.act(cx, "mr-approve", "Approve", () => p.approve(n)), { primary: true });
+    if (!mine && !(this.me && mr.author === this.me)) add("mr-approve", "Approve", (cx) => this.act(cx, "mr-approve", "Approve", () => p.approve(n)), { primary: true });
     else if (p.capabilities?.mr?.revoke) add("mr-revoke", "Revoke", (cx) => this.act(cx, "mr-revoke", "Revoke", () => p.unapprove(n)));
     add("mr-edit", "Edit", (cx) => this.startEdit(cx));
     add("mr-draft", mr.draft ? "Mark as ready" : "Mark as draft", (cx) => this.act(cx, "mr-draft", mr.draft ? "Mark as ready" : "Mark as draft", () => p.setDraft(n, !mr.draft)));
@@ -304,6 +311,9 @@ export class MrPage {
         .child(div().px(14).py(4).text_size(13).text_color(description ? t.foreground : t.dim).child(description || "No description."))
         .child(section(t, "DISCUSSION", threads.length, t.muted))
         .children(threads.length ? threads.map((th, i) => this.thread(t, th, i, now)) : [div().px(14).py(4).text_size(12).text_color(t.dim).child("No discussion yet.")])
+        .when(Boolean(this.data.olderThreads), (e) => e.child(h_flex().px(14).py(4).gap(6).items_center()
+          .child(div().text_size(12).text_color(t.dim).child("Older threads not shown —"))
+          .child(button(t, "mr-older-web", "Open in browser", (cx) => cx.open_url(url)))))
         .child(this.commentForm(t))
         .when(Boolean(this.fileError), (e) => e.child(this.fileErrorBox(t, mr, url)))
         .child(section(t, "FILES", files.length, t.muted))
@@ -360,9 +370,7 @@ export class MrPage {
     const approvals = mr.approvalsRequired != null ? `${mr.approvals}/${mr.approvalsRequired} approved` : `${mr.approvals ?? 0} approved`;
     const stateColor = mr.state === "merged" ? t.accent : mr.state === "closed" ? t.ansi1 : t.ansi2;
     const pipeline = mr.pipeline
-      ? mr.pipelineRunId
-        ? h_flex().id("mr-pipeline").flex_none().cursor_pointer().on_click((_e, cx) => this.owner.openRun({ id: mr.pipelineRunId }, cx)).child(statusPill(t, mr.pipeline))
-        : statusPill(t, mr.pipeline)
+      ? h_flex().id("mr-pipeline").flex_none().cursor_pointer().on_click((_e, cx) => this.openPipeline(mr, cx)).child(statusPill(t, mr.pipeline))
       : null;
     return v_flex().flex_none().px(14).py(12).gap(8)
       .child(h_flex().gap(10).items_center()

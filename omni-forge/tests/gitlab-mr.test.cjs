@@ -175,3 +175,20 @@ test("createMr without draft keeps the title", async () => {
   const post = calls.map((_, i) => callOf(calls, i)).find((c) => c.method === "POST");
   assert.deepEqual(post.fields, ["source_branch=a", "target_branch=main", "title=T", "description="]);
 });
+
+test("mrDetail carries me (currentUser) and asks for the newest 100 discussions", async () => {
+  const { exec, calls } = recorder(() => ok(fixture("gitlab-mr-detail.json")));
+  const d = await gitlabProvider(exec, repo).mrDetail(12);
+  assert.equal(d.me, "bob");
+  assert.equal(d.olderThreads, false);
+  const q = calls[0].args.find((a) => a.startsWith("query="));
+  assert.ok(q.includes("currentUser{username}"));
+  assert.ok(q.includes("discussions(last: 100){pageInfo{hasPreviousPage}"));
+});
+
+test("mrDetail olderThreads follows discussions.pageInfo.hasPreviousPage", async () => {
+  const data = JSON.parse(fixture("gitlab-mr-detail.json"));
+  data.data.project.mergeRequest.discussions.pageInfo = { hasPreviousPage: true };
+  const { exec } = recorder(() => ok(JSON.stringify(data)));
+  assert.equal((await gitlabProvider(exec, repo).mrDetail(12)).olderThreads, true);
+});

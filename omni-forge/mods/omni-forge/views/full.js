@@ -8,8 +8,9 @@
 // isn't shown gets no layout, so the focused tab at that moment is the one showing it.
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, focused, panes, props, shared, setShared, checking, exec, window as appWindow } from "herdr";
+import { theme, focused, panes, props, shared, setShared, notify, checking, exec, window as appWindow } from "herdr";
 import { watchKey } from "../ci/watch.js";
+import { detectRepo } from "../forge/detect.js";
 import { dropMr } from "../forge/mr-cache.js";
 import { mrCacheDir } from "../actions/diff.js";
 import { ago } from "./runs.js";
@@ -19,7 +20,7 @@ import { openNewMrDialog } from "./new-mr.js";
 import { MrList } from "./mr-list.js";
 import { MrPage } from "./mr-page.js";
 import { Tabs } from "./tabs.js";
-import { parseOpen, isVisible, mayTakeOpen, fullTabs, nextLoc, OPEN, RUNS_KEY, MRS_KEY } from "./locate.js";
+import { parseOpen, isVisible, mayTakeOpen, fullTabs, nextLoc, OPEN, LAST_LOC, RUNS_KEY, MRS_KEY } from "./locate.js";
 import { RepoView, sameRepo } from "./repo.js";
 import { statusIcon, runPills, button, busyState, message, errorState, tabPill } from "./ui.js";
 
@@ -84,9 +85,33 @@ export class FullView extends RepoView {
       this.branch = null;
       this.loc = { key: `open|${open.kind}|${open.host}|${open.path}`, cwd: null, machine: null, branch: null };
       this.seenTerm = nextLoc({ loc: this.loc, seenTerm: null, lastLoc: null }, this.snap()).seenTerm;
+      this.seedFolder(open, cx);
     }
     if (open.mr != null) this.openMr(open.mr, cx, undefined, { load });
     else this.openRun({ id: open.runId }, cx, { load });
+  }
+
+  // An opened repo has no folder yet: take the key's cwd/machine (the sender's), else the last
+  // focused terminal (shared last-loc). Detection confirms the folder belongs to the repo and
+  // picks up its remote url; a folder of another repo is dropped. Without any, files and New MR
+  // have no folder until the user says so (they tell them).
+  seedFolder(open, cx) {
+    const last = shared(LAST_LOC);
+    const from = open.cwd ? open : last?.cwd ? last : null;
+    if (!from || checking()) return;
+    const seed = { key: `${from.machine ?? ""}|${from.cwd}`, cwd: from.cwd, machine: from.machine ?? null, branch: open.cwd ? null : (last?.branch ?? null) };
+    const before = this.loc;
+    cx.spawn(async (cx) => {
+      try {
+        const res = await detectRepo(seed.cwd, seed.machine, exec);
+        if (this.loc !== before || res.error || !sameRepo(res, this.repo)) return; // moved on, or another repo
+        this.loc = seed;
+        this.seenTerm = nextLoc({ loc: seed, seenTerm: null, lastLoc: null }, this.snap()).seenTerm;
+        if (res.url && !this.repo.url) this.repo = { ...this.repo, url: res.url };
+        this.setBranch(seed.branch, cx);
+      } catch { /* no folder: the actions that need one say so */ }
+      cx.notify();
+    });
   }
 
   // Opens (or selects) the MR's tab and its page.
@@ -227,7 +252,9 @@ export class FullView extends RepoView {
   // ---- render --------------------------------------------------------------------
 
   newMr() {
-    if (this.repo && this.loc) openNewMrDialog({ repo: this.repo, loc: this.loc });
+    if (!this.repo) return;
+    if (!this.loc?.cwd) { notify({ title: "No folder to run git in", body: "Focus a terminal in the repository first.", level: "warning" }); return; }
+    openNewMrDialog({ repo: this.repo, loc: this.loc });
   }
 
   render(_cx) {

@@ -176,11 +176,14 @@ export function gitlabProvider(exec, { host, path }) {
     },
 
     async mrDetail(number) {
-      const q = `query($p: ID!){ project(fullPath: $p){ mergeRequest(iid: ${JSON.stringify(String(number))}){ ${MR_FIELDS} description diffStats{path additions deletions} discussions{nodes{id resolvable resolved notes{nodes{${NOTE_FIELDS}}}}} } } }`;
-      const m = (await graphql(q)).mergeRequest;
+      const q = `query($p: ID!){ currentUser{username} project(fullPath: $p){ mergeRequest(iid: ${JSON.stringify(String(number))}){ ${MR_FIELDS} description diffStats{path additions deletions} discussions(last: 100){pageInfo{hasPreviousPage} nodes{id resolvable resolved notes{nodes{${NOTE_FIELDS}}}}} } } }`;
+      const res = await rawGraphql(q);
+      const m = res.project?.mergeRequest;
       if (!m) throw new ForgeError(`Merge request ${number} not found`, 404, notFoundHint);
       return {
         mr: toMr(m),
+        me: res.currentUser?.username ?? "",
+        olderThreads: Boolean(m.discussions?.pageInfo?.hasPreviousPage), // discussions is the newest 100
         description: m.description ?? "",
         threads: (m.discussions?.nodes ?? []).map((d) => {
           const pos = (d.notes?.nodes ?? []).find((n) => n.position)?.position;

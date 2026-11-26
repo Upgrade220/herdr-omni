@@ -79,3 +79,13 @@ test("tick lists MRs only while the mrs block shows, never runs, never the watch
   assert.equal(env.runLists, 0);
   assert.equal(env.shared["omni-forge.watch-owner"], undefined);
 });
+
+test("a row click puts the followed folder and machine into the key", () => {
+  const { view, env } = setup();
+  view.repo = repo;
+  view.loc = { key: "m1|/w/repo-a", cwd: "/w/repo-a", machine: "m1", branch: "main" };
+  view.openInFull({ number: 42 });
+  const key = JSON.parse(env.shared["omni-forge.open"].key);
+  assert.equal(key.cwd, "/w/repo-a");
+  assert.equal(key.machine, "m1");
+});

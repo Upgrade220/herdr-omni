@@ -129,9 +129,15 @@
         ]
        }
       }
-     ]
+     ],
+     "pageInfo": {
+      "hasPreviousPage": false
+     }
     }
    }
+  },
+  "currentUser": {
+   "username": "bob"
   }
  }
 }

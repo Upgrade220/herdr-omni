@@ -20,7 +20,7 @@ This covers CI and MRs (parts 1 and 2 of 4). Inline comments drawn in the diff a
 ## Merge requests
 
 - **Side list.** A second narrow block in the right panel, opened by an **MRs** button. Chips: **To review** (you are a reviewer and haven't approved; the default), **Mine** and **All open**, each with a count, plus a filter box over title, number, author and branch. A row shows the title, `!412` (GitLab) or `#412` (GitHub), author, source → target, a Draft marker, the pipeline status, approvals, unresolved threads and age. A click opens the MR in the full tab.
-- **MRs tab.** The full tab has a fixed **MRs** tab beside **Runs** with the same list, and a **New MR** button. Each MR you open is a tab of its own, sharing the cap of 8 with runs and logs (the least recently used closes first).
+- **MRs tab.** The full tab has a fixed **MRs** tab beside **Runs** with the same list, and a **New MR** button. Each MR you open is a tab of its own, and the full tab holds up to 8 tabs including Runs and MRs (the least recently used opened tab closes first).
 - **MR page.** Title, state (open, draft, merged, closed), author, source → target, pipeline pill (opens that run in the CI part), approvals and **Open in browser**; the description as readable text; the discussion with replies and **Resolve / Unresolve**, and a box for a new comment; and the changed files with their +/− counts. It refreshes every 15 seconds while its tab is shown. A merged or closed MR stays in its tab, showing its new state.
 - **Actions** on an open MR: **Approve** (and **Revoke** where the forge has it), **Edit** title and description, **Mark as draft / Mark as ready**, **Reviewers…** and **Assignees…** (a search-as-you-type picker), **Close**, and **Reopen** on a closed one.
 - **New MR.** A dialog from the MRs list. Source is the current branch, target the repo's default branch (changeable); the title is filled from the last commit, and you can set a description, Draft and reviewers. A branch with no upstream says so and offers **Push branch first** (`git push --set-upstream`, only when you click it). The new MR opens in the full tab.
@@ -103,11 +103,10 @@ herdr-app do tab.new '{"mod":"omni-forge","props":{"view":"full"}}'
 - A pipeline that failed before it created any jobs shows "No jobs yet."
 - With two or more full tabs in one space, a click from the side list goes to the focused one, or else the first one.
 - GitHub Enterprise and gitlab.com work only if the CLI is logged in there; neither is tested.
-
-- MRs: forks aren't handled (an MR from a fork has no head in the repo's own remote, so its files can't be fetched; the page still shows).
+- MRs from forks: `refs/pull/N/head` and `refs/merge-requests/N/head` exist in the target repo even for fork MRs, so their files can be fetched, but the list and the actions use the origin project only (a fork's own MRs don't show).
 - GitHub has no **Revoke**: the button is hidden there. GitHub doesn't say how many approvals are required, so the list shows approvals without a total (`✓1`), where GitLab shows `✓1/2`.
 - The lists show up to 50 open MRs, and the filter searches only those.
-- An MR's discussion and changed files are loaded in one request each, not paginated; a very large MR may show only the first part.
+- An MR's discussion shows the newest 100 threads (a line tells you when older ones are cut); changed files are loaded in one request, not paginated, so a very large MR may show only the first part.
 - A line thread's `file:line` link opens the file at the top, not at the line.
 - Caches on another machine are cleaned only when their MR is merged or closed and its tab closed; the 14-day sweep covers this computer only.
 

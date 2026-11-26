@@ -11,12 +11,16 @@ export const LAST_LOC = "omni-forge.last-loc";
 // full copy takes it in its tick (mayTakeOpen).
 export const OPEN = "omni-forge.open";
 
-// props.open is a watch key, JSON [kind, host, path, runId], or an MR key (mrKey) with mr: n.
+// props.open is a watch key, JSON [kind, host, path, runId], or an MR key (mrKey) with mr: n and,
+// optionally, the folder (and machine) the sender knows the repository at.
 export function parseOpen(value) {
   try {
     const v = JSON.parse(value);
     if (v && !Array.isArray(v) && typeof v === "object") {
-      return v.kind && v.host && v.path && v.mr != null ? { kind: v.kind, host: v.host, path: v.path, mr: String(v.mr) } : null;
+      if (!(v.kind && v.host && v.path && v.mr != null)) return null;
+      const open = { kind: v.kind, host: v.host, path: v.path, mr: String(v.mr) };
+      if (typeof v.cwd === "string" && v.cwd) { open.cwd = v.cwd; open.machine = typeof v.machine === "string" && v.machine ? v.machine : null; }
+      return open;
     }
     const [kind, host, path, runId] = v;
     return kind && host && path && runId != null ? { kind, host, path, runId: String(runId) } : null;
@@ -160,7 +164,9 @@ export const RUNS_KEY = "runs";
 export const MRS_KEY = "mrs";
 
 // The key asking the full view to open an MR's tab (parseOpen reads it back).
-export const mrKey = ({ kind, host, path }, n) => JSON.stringify({ kind, host, path, mr: n });
+// `loc` ({cwd, machine}) is the sender's folder: the full tab reads files and runs git there.
+export const mrKey = ({ kind, host, path }, n, loc) =>
+  JSON.stringify({ kind, host, path, mr: n, ...(loc?.cwd ? { cwd: loc.cwd, ...(loc.machine ? { machine: loc.machine } : {}) } : {}) });
 
 // What omni-forge's own Herdr tabs are called, and the icon the tab bars draw for them
 // (both bars read a mod tab's icon from shared("mod-icons")).

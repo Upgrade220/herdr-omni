@@ -10,6 +10,7 @@ import {
 } from "herdr";
 import { providerFor } from "../forge/providers.js";
 import { spaceFullTabs, sidePanelId, OPEN, MOD, mrKey } from "./locate.js";
+import { mrNumber } from "./mrs.js";
 import { PeoplePicker } from "./people.js";
 import { button, mono } from "./ui.js";
 
@@ -170,9 +171,9 @@ export class NewMrView {
         });
         const have = new Set(mr?.reviewers ?? []);
         if (reviewers.some((u) => !have.has(u))) {
-          notify({ title: "Created, but reviewers weren't set", body: `!${mr.number} was created; add the reviewers on its page.`, level: "warning" });
+          notify({ title: "Created, but reviewers weren't set", body: `${mrNumber(this.repo.kind, mr.number)} was created; add the reviewers on its page.`, level: "warning" });
         }
-        this.showFull(mrKey(this.repo, mr.number));
+        this.showFull(mrKey(this.repo, mr.number, this.loc));
         this.close();
       } catch (e) {
         this.error = errorText(e);

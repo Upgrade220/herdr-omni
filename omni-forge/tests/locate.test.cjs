@@ -197,3 +197,12 @@ test("sideVisible and sidePanelId take the view name", () => {
   assert.equal(sidePanelId(t, "mrs"), "panel");
   assert.equal(sidePanelId(t), null);
 });
+
+test("mrKey carries cwd and machine when given; parseOpen reads them back", () => {
+  const { mrKey, parseOpen } = load(["views/locate.js"]);
+  const repo = { kind: "github", host: "github.com", path: "o/r" };
+  assert.equal(mrKey(repo, 3, { cwd: "/w/r", machine: "m1" }), '{"kind":"github","host":"github.com","path":"o/r","mr":3,"cwd":"/w/r","machine":"m1"}');
+  assert.equal(mrKey(repo, 3, { cwd: null, machine: null }), mrKey(repo, 3));
+  assert.deepEqual({ ...parseOpen(mrKey(repo, 3, { cwd: "/w/r", machine: "m1" })) }, { ...repo, mr: "3", cwd: "/w/r", machine: "m1" });
+  assert.deepEqual({ ...parseOpen(mrKey(repo, 3, { cwd: "/w/r" })) }, { ...repo, mr: "3", cwd: "/w/r", machine: null });
+});

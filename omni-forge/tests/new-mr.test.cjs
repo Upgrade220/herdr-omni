@@ -13,7 +13,7 @@ function fakeState() {
 const ok = (stdout = "") => ({ code: 0, stdout, stderr: "" });
 const fail = (stderr = "fatal") => ({ code: 128, stdout: "", stderr });
 
-function setup({ git = {}, provider = {}, panes = [{ pane: "pf", tab: "F", mod: "omni-forge", terminal: null }], checking = false } = {}) {
+function setup({ git = {}, provider = {}, panes = [{ pane: "pf", tab: "F", mod: "omni-forge", terminal: null }], checking = false, kind = "gitlab" } = {}) {
   const env = { execs: [], runs: [], shared: {}, closed: [], notified: [], created: [], git: { branch: ok("feature/x\n"), upstream: ok("origin/feature/x\n"), subject: ok("Fix totals\n"), remote: ok("origin\n"), push: ok(), ...git } };
   const exec = async (cmd, args, opts) => {
     env.execs.push({ cmd, args: [...args], opts: plain(opts) });
@@ -28,7 +28,7 @@ function setup({ git = {}, provider = {}, panes = [{ pane: "pf", tab: "F", mod: 
     createMr: async (a) => { env.created.push(plain(a)); return { number: 12, reviewers: a.reviewers }; },
     ...provider,
   };
-  const mod = load(["views/locate.js", "views/ui.js", "views/people.js", "views/new-mr.js"], {
+  const mod = load(["views/locate.js", "views/mrs.js", "views/ui.js", "views/people.js", "views/new-mr.js"], {
     InputState: { new: fakeState },
     TextareaState: { new: () => Object.assign(fakeState(), { set_auto_grow() {} }) },
     exec,
@@ -50,7 +50,7 @@ function setup({ git = {}, provider = {}, panes = [{ pane: "pf", tab: "F", mod: 
   const pending = [];
   const cx = { timer: { after() { return { cancel() {} }; }, every() {} }, notify() {}, spawn(fn) { const p = fn(cx); pending.push(p); return p; } };
   const settle = async () => { while (pending.length) await pending.shift(); };
-  const repo = { kind: "gitlab", host: "git.example.org", path: "group/app", url: "u" };
+  const repo = { kind, host: "git.example.org", path: "group/app", url: "u" };
   view.init({ repo, loc: { cwd: "/w/app", machine: "m1" }, overlay: "ov1" }, cx);
   return { view, env, cx, settle, mod };
 }
@@ -137,7 +137,7 @@ test("create: createMr args, then OPEN is set for the full tab and the overlay c
   view.create(cx);
   await settle();
   assert.deepEqual(env.created, [{ source: "feature/x", target: "develop", title: "My title", description: "body", draft: true, reviewers: ["ann", "bob"] }]);
-  assert.deepEqual(plain(env.shared["omni-forge.open"]), { tab: "F", key: JSON.stringify({ kind: "gitlab", host: "git.example.org", path: "group/app", mr: 12 }) });
+  assert.deepEqual(plain(env.shared["omni-forge.open"]), { tab: "F", key: JSON.stringify({ kind: "gitlab", host: "git.example.org", path: "group/app", mr: 12, cwd: "/w/app", machine: "m1" }) });
   assert.deepEqual(env.runs[0], ["tab.select", { id: "F" }]);
   assert.deepEqual(env.closed, ["ov1"]);
 });
@@ -218,4 +218,26 @@ test("a failed rev-parse HEAD shows its error, not Detached HEAD", async () => {
   assert.equal(view.detached, false);
   assert.match(view.error, /not a git repository/);
   assert.equal(view.canCreate(), false);
+});
+
+test("the reviewers notice uses the forge's number style", async () => {
+  for (const [kind, want] of [["github", "#5 was created"], ["gitlab", "!5 was created"]]) {
+    const { view, env, cx, settle } = setup({ kind, provider: { createMr: async () => ({ number: 5, reviewers: [] }) } });
+    await settle();
+    view.reviewers = ["ann"];
+    view.create(cx);
+    await settle();
+    assert.ok(env.notified.some((n) => n.body.startsWith(want)), kind);
+  }
+});
+
+test("the hand-off key carries the dialog's folder and machine", async () => {
+  const { view, env, cx, settle } = setup();
+  await settle();
+  view.create(cx);
+  await settle();
+  const key = JSON.parse(env.shared["omni-forge.open"].key);
+  assert.equal(key.mr, 12);
+  assert.equal(key.cwd, "/w/app");
+  assert.equal(key.machine, "m1");
 });

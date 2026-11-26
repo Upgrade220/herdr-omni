@@ -4,7 +4,7 @@
 // new tab named MRs); the Full button opens that tab on its MRs tab. Both close the side panel.
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, focused, panes, spaces, layout, setShared, checking, run as runCommand } from "herdr";
+import { theme, focused, panes, spaces, layout, setShared, notify, checking, run as runCommand } from "herdr";
 import { spaceFullTabs, sideVisible, sidePanelId, OPEN, MRS_KEY, MOD, mrKey } from "./locate.js";
 import { RepoView } from "./repo.js";
 import { openNewMrDialog } from "./new-mr.js";
@@ -43,11 +43,13 @@ export class MrSideView extends RepoView {
   }
 
   openInFull(m) {
-    this.showFull(mrKey(this.repo, m.number));
+    this.showFull(mrKey(this.repo, m.number, this.loc));
   }
 
   newMr() {
-    if (this.repo && this.loc) openNewMrDialog({ repo: this.repo, loc: this.loc });
+    if (!this.repo) return;
+    if (!this.loc?.cwd) { notify({ title: "No folder to run git in", body: "Focus a terminal in the repository first.", level: "warning" }); return; }
+    openNewMrDialog({ repo: this.repo, loc: this.loc });
   }
 
   openFull() {

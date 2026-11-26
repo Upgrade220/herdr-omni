@@ -369,3 +369,32 @@ test("Edit while editing keeps the unsaved edits", async () => {
   click(page, "mr-edit", cx);
   assert.equal(page.editTitle.value(), "Half typed");
 });
+
+// ---- final review fixes -------------------------------------------------------
+
+test("me comes from the detail first, so Revoke shows when the list never loaded", async () => {
+  const ids = (s) => s.page.actions(s.page.data.mr).map((a) => a.id);
+  const detail = (me, mr) => async (n) => ({ ...(await withMr(mr)(n)), me });
+  let s = await ready({ detail: detail("me", { approvedBy: ["me"] }), me: undefined, capabilities: { mr: { revoke: true } } });
+  assert.ok(ids(s).includes("mr-revoke") && !ids(s).includes("mr-approve"));
+  s = await ready({ detail: detail("", { approvedBy: ["me"] }), me: "me", capabilities: { mr: { revoke: true } } }); // falls back to the list's me
+  assert.ok(ids(s).includes("mr-revoke"));
+});
+
+test("no Approve on your own MR", async () => {
+  const s = await ready({ detail: async (n) => ({ ...(await withMr({ author: "me" })(n)), me: "me" }) });
+  assert.ok(!s.page.actions(s.page.data.mr).some((a) => a.id === "mr-approve"));
+});
+
+test("a pipeline pill without a run opens the MR in the browser; with a run it opens the run", async () => {
+  const s = await ready();
+  const opened = [];
+  const cx = { open_url: (u) => opened.push(u) };
+  const runs = [];
+  s.owner.openRun = (r) => runs.push(r.id);
+  s.page.openPipeline({ number: 7, url: "https://github.com/o/r/pull/7", pipeline: "running", pipelineRunId: null }, cx);
+  assert.deepEqual(opened, ["https://github.com/o/r/pull/7"]);
+  s.page.openPipeline({ number: 7, pipeline: "running", pipelineRunId: "9" }, cx);
+  assert.deepEqual(runs, ["9"]);
+  assert.equal(opened.length, 1);
+});

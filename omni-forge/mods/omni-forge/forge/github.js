@@ -61,7 +61,8 @@ export function githubProvider(exec, { host, path }) {
   const toMr = (p) => {
     const approved = nodes(p.latestReviews).filter((r) => r.state === "APPROVED").map((r) => r.author?.login).filter(Boolean);
     const requested = nodes(p.reviewRequests).map((r) => r.requestedReviewer?.login).filter(Boolean);
-    const reviewed = nodes(p.latestReviews).map((r) => r.author?.login).filter(Boolean);
+    // The author's own COMMENTED review (a reply in a thread) doesn't make them a reviewer.
+    const reviewed = nodes(p.latestReviews).map((r) => r.author?.login).filter((l) => l && l !== p.author?.login);
     const commit = nodes(p.commits)[0]?.commit;
     const rollup = commit?.statusCheckRollup?.state;
     return {
@@ -140,8 +141,9 @@ export function githubProvider(exec, { host, path }) {
     },
 
     async mrDetail(number) {
-      const q = `query($owner: String!, $name: String!){ repository(owner: $owner, name: $name){ pullRequest(number: ${Number(number)}){ ${PR_FIELDS} body comments(first: 100){nodes{databaseId author{login} body createdAt}} reviewThreads(first: 100){nodes{id isResolved path line originalLine comments(first: 100){nodes{databaseId author{login} body createdAt}}}} } } }`;
-      const pr = (await graphql(q))?.repository?.pullRequest;
+      const q = `query($owner: String!, $name: String!){ viewer{login} repository(owner: $owner, name: $name){ pullRequest(number: ${Number(number)}){ ${PR_FIELDS} body comments(last: 100){pageInfo{hasPreviousPage} nodes{databaseId author{login} body createdAt}} reviewThreads(last: 100){pageInfo{hasPreviousPage} nodes{id isResolved path line originalLine comments(first: 100){nodes{databaseId author{login} body createdAt}}}} } } }`;
+      const data = await graphql(q);
+      const pr = data?.repository?.pullRequest;
       if (!pr) throw notFound(number);
       const mr = toMr(pr);
       const [files, runs] = await Promise.all([
@@ -162,8 +164,12 @@ export function githubProvider(exec, { host, path }) {
       }));
       const threads = [...issue, ...review].sort((a, b) => String(a.notes[0]?.createdAt).localeCompare(String(b.notes[0]?.createdAt)));
       mr.unresolved = review.filter((t) => !t.resolved).length;
+      // comments and reviewThreads are the newest 100; older ones are cut.
+      const olderThreads = Boolean(pr.comments?.pageInfo?.hasPreviousPage || pr.reviewThreads?.pageInfo?.hasPreviousPage);
       return {
         mr,
+        me: data.viewer?.login ?? "",
+        olderThreads,
         description: pr.body ?? "",
         threads,
         files: files.map((f) => ({ path: f.filename, add: f.additions ?? 0, del: f.deletions ?? 0, status: FILE_STATUS[f.status] ?? "modified" })),

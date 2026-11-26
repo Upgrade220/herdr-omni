@@ -245,3 +245,31 @@ test("createMr survives a failed reviewers request", async () => {
   const mr = await githubProvider(exec, repo).createMr({ source: "feat-12", target: "main", title: "T", description: "", draft: false, reviewers: ["nobody"] });
   assert.equal(mr.number, 12);
 });
+
+test("mrDetail carries me (viewer) and asks for the newest 100 threads", async () => {
+  const { exec, calls } = recorder(detailReply);
+  const d = await githubProvider(exec, repo).mrDetail(12);
+  assert.equal(d.me, "bob");
+  const q = queryOf(calls.find((c) => c.args.includes("graphql")));
+  assert.ok(q.includes("viewer{login}"));
+  assert.ok(q.includes("comments(last: 100){pageInfo{hasPreviousPage}"));
+  assert.ok(q.includes("reviewThreads(last: 100){pageInfo{hasPreviousPage}"));
+  assert.equal(d.olderThreads, false);
+});
+
+test("mrDetail olderThreads is true when either connection has an earlier page", async () => {
+  for (const key of ["comments", "reviewThreads"]) {
+    const data = JSON.parse(fixture("github-pr-detail.json"));
+    data.data.repository.pullRequest[key].pageInfo = { hasPreviousPage: true };
+    const { exec } = recorder((cmd, args) => (args.includes("graphql") ? ok(JSON.stringify(data)) : detailReply(cmd, args)));
+    assert.equal((await githubProvider(exec, repo).mrDetail(12)).olderThreads, true, key);
+  }
+});
+
+test("toMr leaves the author out of reviewers even with a COMMENTED review", async () => {
+  const data = JSON.parse(fixture("github-prs.json"));
+  data.data.repository.pullRequests.nodes[0].latestReviews.nodes.push({ state: "COMMENTED", author: { login: "alice" } });
+  const { exec } = recorder(() => ok(JSON.stringify(data)));
+  const { mrs } = await githubProvider(exec, repo).listMrs();
+  assert.deepEqual([...mrs[0].reviewers], ["bob", "carol", "dave"]);
+});
