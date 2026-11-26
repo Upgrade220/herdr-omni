@@ -1,0 +1,11 @@
+{"data":{"viewer":{"login":"bob"},"repository":{"pullRequests":{"nodes":[
+{"number":12,"title":"Add widget","isDraft":false,"state":"OPEN","url":"https://github.com/acme/app/pull/12","updatedAt":"2026-01-03T10:00:00Z","headRefName":"feat-12","baseRefName":"main","author":{"login":"alice"},
+ "reviewRequests":{"nodes":[{"requestedReviewer":{"login":"bob"}},{"requestedReviewer":{}}]},
+ "latestReviews":{"nodes":[{"state":"APPROVED","author":{"login":"carol"}},{"state":"CHANGES_REQUESTED","author":{"login":"dave"}}]},
+ "assignees":{"nodes":[{"login":"alice"}]},
+ "reviewThreads":{"nodes":[{"isResolved":false},{"isResolved":true},{"isResolved":false}]},
+ "commits":{"nodes":[{"commit":{"oid":"sha12","statusCheckRollup":{"state":"FAILURE"}}}]}},
+{"number":11,"title":"Rework","isDraft":true,"state":"OPEN","url":"https://github.com/acme/app/pull/11","updatedAt":"2026-01-02T10:00:00Z","headRefName":"feat-11","baseRefName":"main","author":{"login":"alice"},
+ "reviewRequests":{"nodes":[]},"latestReviews":{"nodes":[]},"assignees":{"nodes":[]},"reviewThreads":{"nodes":[]},
+ "commits":{"nodes":[{"commit":{"oid":"sha11","statusCheckRollup":null}}]}}
+]}}}}
