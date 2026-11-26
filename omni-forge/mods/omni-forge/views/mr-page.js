@@ -2,11 +2,12 @@
 // changed files. `owner` is the FullView (repo, loc, provider, gen, tabs, mrPages, openRun()). Like
 // Detail, one object per tab with a stale guard; no cx is stored. Polls every 15 s while its tab shows.
 import { div, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { nextDelay } from "../ci/poller.js";
 import { ago } from "./runs.js";
 import { mrNumber } from "./mrs.js";
 import { openMrFile } from "../actions/diff.js";
+import { PeoplePicker } from "./people.js";
 import { pill, statusPill, section, button, busyState, mono, icon } from "./ui.js";
 
 export const POLL_MS = 15000;
@@ -34,6 +35,9 @@ export function mrWebUrl(repo, number, mr) {
   return repo.kind === "gitlab" ? `https://${repo.host}/${repo.path}/-/merge_requests/${number}` : `https://${repo.host}/${repo.path}/pull/${number}`;
 }
 
+// A thread takes replies when it is resolvable, or is a GitHub comment thread (`c:` ids).
+const replyable = (th) => Boolean(th.resolvable) || String(th.id).startsWith("c:");
+
 export class MrPage {
   constructor(owner, number) {
     this.owner = owner;
@@ -45,6 +49,18 @@ export class MrPage {
     this.nextAt = 0;
     this.opening = new Set(); // paths whose file is being opened
     this.fileError = null; // { path, error } of the last file that could not be shown
+    this.acting = new Set(); // action ids in flight
+    this.actionError = null; // { id, label, error } of the last failed action
+    this.again = false; // a write finished while a load was out: load once more
+    this.editing = false;
+    this.people = null; // { kind, picker, onSave, onCancel } while Reviewers / Assignees is open
+    this.replyBoxes = new Map(); // thread id -> TextareaState, filled when data arrives
+    this.commentBox = TextareaState.new({ placeholder: "Write a comment" });
+    this.commentBox.set_auto_grow(2, 8);
+    this.commentBox.on("change", (_e, cx) => cx.notify());
+    this.editTitle = InputState.new({ placeholder: "Title" });
+    this.editBody = TextareaState.new({ placeholder: "Description" });
+    this.editBody.set_auto_grow(3, 12);
   }
 
   get repo() { return this.owner.repo; }
@@ -61,6 +77,7 @@ export class MrPage {
         // A newer repo (gen) or a closed tab makes the answer stale.
         if (gen !== this.owner.gen || this.owner.mrPages.get(this.number) !== this) { current = false; return; }
         this.data = data;
+        this.syncReplyBoxes();
         this.error = null;
         this.errors = 0;
         this.owner.tabs?.setMr({ number: this.number, label: `${mrNumber(this.repo.kind, this.number)} ${data.mr.title ?? ""}`.trim() });
@@ -72,7 +89,145 @@ export class MrPage {
         this.loading = false;
         if (current) this.nextAt = Date.now() + (this.errors ? nextDelay({ visible: true, anyRunning: false, errors: this.errors }) : POLL_MS);
         cx.notify();
+        if (current && this.again) { this.again = false; this.load(cx); }
       }
+    });
+  }
+
+  // A reply box per thread that takes replies (created here, never in render); GitHub's `c:` comment
+  // threads reply with a new comment.
+  syncReplyBoxes() {
+    for (const th of this.data?.threads ?? []) {
+      if (!replyable(th) || this.replyBoxes.has(th.id)) continue;
+      const box = TextareaState.new({ placeholder: "Reply" });
+      box.set_auto_grow(1, 6);
+      box.on("change", (_e, cx) => cx.notify());
+      this.replyBoxes.set(th.id, box);
+    }
+  }
+
+  // ---- actions -----------------------------------------------------------------
+
+  busy() { return this.acting.size > 0; }
+
+  // Runs a write: every action button of the page disables while one runs; a failure stays on the page
+  // (actionError); success reloads the page.
+  act(cx, id, label, fn) {
+    if (this.busy()) return;
+    this.acting.add(id);
+    this.actionError = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        await fn();
+        if (this.loading) this.again = true; else this.load(cx);
+      } catch (e) {
+        this.actionError = { id, label, error: e };
+      } finally {
+        this.acting.delete(id);
+        cx.notify();
+      }
+    });
+  }
+
+  dismissActionError(cx) {
+    this.actionError = null;
+    cx.notify();
+  }
+
+  get me() { return this.owner.mrList?.me || ""; }
+
+  // The buttons for this MR, in order. Open in browser lives in the top bar.
+  actions(mr) {
+    const p = this.owner.provider;
+    const n = Number(this.number);
+    const out = [];
+    const add = (id, label, run, opts = {}) => out.push({ id, label, ...opts, onClick: (cx) => run(cx) });
+    if (mr.state === "merged") return out;
+    if (mr.state === "closed") {
+      add("mr-reopen", "Reopen", (cx) => this.act(cx, "mr-reopen", "Reopen", () => p.reopen(n)));
+      return out;
+    }
+    const mine = Boolean(this.me) && (mr.approvedBy ?? []).includes(this.me);
+    if (!mine) add("mr-approve", "Approve", (cx) => this.act(cx, "mr-approve", "Approve", () => p.approve(n)), { primary: true });
+    else if (p.capabilities?.mr?.revoke) add("mr-revoke", "Revoke", (cx) => this.act(cx, "mr-revoke", "Revoke", () => p.unapprove(n)));
+    add("mr-edit", "Edit", (cx) => this.startEdit(cx));
+    add("mr-draft", mr.draft ? "Mark as ready" : "Mark as draft", (cx) => this.act(cx, "mr-draft", mr.draft ? "Mark as ready" : "Mark as draft", () => p.setDraft(n, !mr.draft)));
+    add("mr-reviewers", "Reviewers…", (cx) => this.openPeople(cx, "reviewers"));
+    add("mr-assignees", "Assignees…", (cx) => this.openPeople(cx, "assignees"));
+    add("mr-close", "Close", (cx) => this.act(cx, "mr-close", "Close", () => p.close(n)), { danger: true });
+    return out;
+  }
+
+  submitComment(cx) {
+    const body = this.commentBox.value().trim();
+    if (!body) return;
+    this.act(cx, "mr-comment", "Comment", async () => {
+      await this.owner.provider.comment(Number(this.number), body);
+      this.commentBox.set_value("");
+    });
+  }
+
+  submitReply(cx, th) {
+    const box = this.replyBoxes.get(th.id);
+    const body = box?.value().trim();
+    if (!body) return;
+    this.act(cx, `mr-reply-${th.id}`, "Reply", async () => {
+      await this.owner.provider.reply(Number(this.number), th.id, body);
+      box.set_value("");
+    });
+  }
+
+  toggleResolve(cx, th) {
+    const resolved = !th.resolved;
+    this.act(cx, `mr-resolve-${th.id}`, resolved ? "Resolve" : "Unresolve", () => this.owner.provider.resolve(Number(this.number), th.id, resolved));
+  }
+
+  startEdit(cx) {
+    if (!this.data) return;
+    this.editTitle.set_value(this.data.mr.title ?? "");
+    this.editBody.set_value(this.data.description ?? "");
+    this.editing = true;
+    this.people = null;
+    cx.notify();
+  }
+
+  cancelEdit(cx) {
+    this.editing = false;
+    cx.notify();
+  }
+
+  saveEdit(cx) {
+    const title = this.editTitle.value().trim();
+    if (!title) return;
+    const description = this.editBody.value();
+    this.act(cx, "mr-edit-save", "Save", async () => {
+      await this.owner.provider.update(Number(this.number), { title, description });
+      this.editing = false;
+    });
+  }
+
+  openPeople(cx, kind) {
+    if (!this.data) return;
+    const p = this.owner.provider;
+    const n = Number(this.number);
+    const set = kind === "reviewers" ? (list) => p.setReviewers(n, list) : (list) => p.setAssignees(n, list);
+    const label = kind === "reviewers" ? "Reviewers" : "Assignees";
+    const picker = new PeoplePicker({ initial: this.data.mr[kind] ?? [], search: (q) => p.searchUsers(q), onSave: (list, cx2) => this.savePeople(cx2, label, set, list), onCancel: (cx2) => this.closePeople(cx2), placeholder: `Search ${kind}` });
+    this.people = { kind, picker, onSave: picker.onSave, onCancel: picker.onCancel };
+    this.editing = false;
+    cx.notify();
+  }
+
+  closePeople(cx) {
+    this.people = null;
+    cx.notify();
+  }
+
+  savePeople(cx, label, set, list) {
+    this.act(cx, "mr-people-save", label, async () => {
+      await set(list);
+      this.people = null;
     });
   }
 
@@ -128,14 +283,55 @@ export class MrPage {
     return v_flex().flex_1().min_h(0).child(top)
       .child(v_flex().id("mr-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(12)
         .child(this.head(t, mr, now))
+        .child(this.actionBar(t, mr))
+        .when(Boolean(this.actionError), (e) => e.child(this.actionErrorBox(t)))
+        .when(this.editing, (e) => e.child(this.editBox(t)))
+        .when(Boolean(this.people), (e) => e.child(this.people.picker.render(t, `mr-${this.people.kind}-picker`, { busy: this.busy() })))
         .when(Boolean(this.error), (e) => e.child(div().px(14).pb(6).text_size(11).text_color(t.ansi1).child(`Update failed: ${errorText(this.error)}`)))
         .child(section(t, "DESCRIPTION", null, t.muted))
         .child(div().px(14).py(4).text_size(13).text_color(description ? t.foreground : t.dim).child(description || "No description."))
         .child(section(t, "DISCUSSION", threads.length, t.muted))
         .children(threads.length ? threads.map((th, i) => this.thread(t, th, i, now)) : [div().px(14).py(4).text_size(12).text_color(t.dim).child("No discussion yet.")])
+        .child(this.commentForm(t))
         .when(Boolean(this.fileError), (e) => e.child(this.fileErrorBox(t, mr, url)))
         .child(section(t, "FILES", files.length, t.muted))
         .children(files.length ? files.map((f, i) => this.fileRow(t, f, i)) : [div().px(14).py(4).text_size(12).text_color(t.dim).child("No changed files.")]));
+  }
+
+  actionBar(t, mr) {
+    const off = this.busy();
+    const buttons = this.actions(mr);
+    if (!buttons.length) return div();
+    return h_flex().flex_none().px(14).pb(4).gap(8).items_center().flex_wrap()
+      .children(buttons.map((a) => button(t, a.id, a.label, a.onClick, { primary: a.primary, danger: a.danger, disabled: off, busy: this.acting.has(a.id) })));
+  }
+
+  actionErrorBox(t) {
+    const { label, error } = this.actionError;
+    return v_flex().id("mr-action-error").flex_none().mx(14).my(4).p(10).gap(8).items_start().rounded(8).bg(t.raised)
+      .child(div().text_size(12).text_color(t.ansi1).child(`${label} failed`))
+      .child(div().px(8).py(4).rounded(6).text_size(12).font_family(mono()).text_color(t.foreground).child(errorText(error)))
+      .child(button(t, "mr-action-error-dismiss", "Dismiss", (cx) => this.dismissActionError(cx)));
+  }
+
+  editBox(t) {
+    const off = this.busy();
+    return v_flex().id("mr-edit-box").flex_none().mx(14).my(4).p(10).gap(8).rounded(8).bg(t.raised)
+      .child(h_flex().h(30).px(8).items_center().rounded(6).bg(t.background).border_1().border_color(t.border)
+        .child(Input.new(this.editTitle).h_full().flex_1().min_w(0).text_size(13).text_color(t.foreground)))
+      .child(v_flex().px(8).py(6).rounded(6).bg(t.background).border_1().border_color(t.border)
+        .child(Textarea.new(this.editBody).w_full().text_size(12).text_color(t.foreground)))
+      .child(h_flex().gap(8)
+        .child(button(t, "mr-edit-save", "Save", (cx) => this.saveEdit(cx), { primary: true, disabled: off, busy: this.acting.has("mr-edit-save") }))
+        .child(button(t, "mr-edit-cancel", "Cancel", (cx) => this.cancelEdit(cx))));
+  }
+
+  commentForm(t) {
+    const off = this.busy();
+    return v_flex().id("mr-comment-form").flex_none().mx(14).my(4).gap(6)
+      .child(v_flex().px(8).py(6).rounded(6).bg(t.raised).border_1().border_color(t.border)
+        .child(Textarea.new(this.commentBox).w_full().text_size(12).text_color(t.foreground)))
+      .child(h_flex().child(button(t, "mr-comment-send", "Comment", (cx) => this.submitComment(cx), { disabled: off || !this.commentBox.value().trim(), busy: this.acting.has("mr-comment") })));
   }
 
   fileErrorBox(t, mr, url) {
@@ -179,7 +375,19 @@ export class MrPage {
       .when(!th.path && Boolean(th.resolved), (e) => e.child(pill(t, { label: "resolved", glyph: "✓", color: t.ansi2 })))
       .children(th.notes.map((n, j) => v_flex().id(`mr-note-${i}-${j}`).gap(2)
         .child(div().text_size(11).text_color(t.dim).child([n.author, ago(n.createdAt, now)].filter(Boolean).join(" · ")))
-        .child(div().text_size(13).text_color(n.dim ? t.dim : t.foreground).child(n.body))));
+        .child(div().text_size(13).text_color(n.dim ? t.dim : t.foreground).child(n.body))))
+      .when(this.replyBoxes.has(th.id), (e) => e.child(this.replyForm(t, th, i)));
+  }
+
+  replyForm(t, th, i) {
+    const off = this.busy();
+    const box = this.replyBoxes.get(th.id);
+    return v_flex().id(`mr-reply-form-${i}`).gap(6)
+      .child(v_flex().px(8).py(4).rounded(6).bg(t.background).border_1().border_color(t.border)
+        .child(Textarea.new(box).w_full().text_size(12).text_color(t.foreground)))
+      .child(h_flex().gap(8)
+        .child(button(t, `mr-reply-${i}`, "Reply", (cx) => this.submitReply(cx, th), { disabled: off || !box.value().trim(), busy: this.acting.has(`mr-reply-${th.id}`) }))
+        .when(Boolean(th.resolvable), (e) => e.child(button(t, `mr-resolve-${i}`, th.resolved ? "Unresolve" : "Resolve", (cx) => this.toggleResolve(cx, th), { disabled: off, busy: this.acting.has(`mr-resolve-${th.id}`) }))));
   }
 
   fileRow(t, f, i) {
