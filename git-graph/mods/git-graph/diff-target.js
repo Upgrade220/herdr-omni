@@ -17,17 +17,20 @@ export function diffArgs(target, full = false) {
     case "unstaged": return [LIT, "diff", ...wide, "--", target.path];
     case "staged": return [LIT, "diff", "--cached", ...wide, "--", target.path];
     case "commit": return [LIT, "show", "--diff-merges=first-parent", "--format=", ...wide, target.commit.hash, "--", target.path];
+    // A range inside a separate git dir (a cache of fetched refs): --git-dir is a global option, so it leads.
+    case "range": return [`--git-dir=${target.gitDir}`, LIT, "diff", ...wide, `${target.base}...${target.head}`, "--", target.path];
     default: return null;
   }
 }
 
 // A target handed over in a new Diff tab's props (better-files' Show diff opens the tab with one), so
 // the tab shows it at once, before it has claimed its tab. Null unless it has the shape the view reads.
-const SOURCES = new Set(["unstaged", "staged", "untracked", "conflict", "commit"]);
+const SOURCES = new Set(["unstaged", "staged", "untracked", "conflict", "commit", "range"]);
 export function targetFromProps(props) {
   const t = props?.target;
   if (typeof t?.root !== "string" || typeof t.path !== "string" || !t.path || !SOURCES.has(t.source)) return null;
   if (t.source === "commit" && typeof t.commit?.hash !== "string") return null;
+  if (t.source === "range" && !(t.gitDir && t.base && t.head && [t.gitDir, t.base, t.head].every((v) => typeof v === "string"))) return null;
   return t;
 }
 
@@ -59,6 +62,7 @@ export function rowsFromDiff(stdout) {
 // The Diff tab's header: what is compared.
 export function scopeLabel(target) {
   if (!target) return "";
+  if (target.source === "range") return target.label || `${target.base}...${target.head}`;
   if (target.source !== "commit") return target.source;
   const c = target.commit ?? {};
   return ["commit", c.short || String(c.hash ?? "").slice(0, 7), c.subject].filter(Boolean).join(" ");

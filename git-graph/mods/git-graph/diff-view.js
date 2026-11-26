@@ -27,7 +27,7 @@ const codeSize = () => settings().font_size ?? 14;
 const rowHeight = () => Math.round(codeSize() * 1.5);
 const markColor = (t, s) => (s === "A" ? t.ansi2 : s === "D" || s === "!" ? t.ansi1 : t.ansi3);
 const MARK_NAME = { M: "Modified", A: "Added", D: "Deleted", U: "Untracked", "!": "Conflict" };
-const working = (target) => target && target.source !== "commit";
+const working = (target) => target && target.source !== "commit" && target.source !== "range";
 const wholeFile = (target) => target?.source === "untracked" || target?.source === "conflict";
 
 export class DiffView {
