@@ -11,8 +11,8 @@ const panes = [
 ];
 const focusOn = (pane, tab) => ({ space: "s1", tab, pane, terminal: panes.find((p) => p.pane === pane)?.terminal ?? null, cwd: panes.find((p) => p.pane === pane)?.cwd ?? null });
 
-function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes } = {}) {
-  const env = { pages: [], focus, shared: { ...shared }, detects: [], opened: [], panes: paneList, logs: [], logTicks: [], logRefreshes: [] };
+function setup({ checking = false, given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes } = {}) {
+  const env = { checking, pages: [], focus, shared: { ...shared }, detects: [], opened: [], panes: paneList, logs: [], logTicks: [], logRefreshes: [] };
   const repoOf = (cwd) => ({ kind: "github", host: "github.com", path: `o/${cwd.split("/").pop()}`, url: "" });
   class Detail {
     constructor(owner, runId) { this.runId = runId; env.opened.push(runId); }
@@ -38,7 +38,7 @@ function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect, pa
     shared: (k) => env.shared[k],
     setShared: (k, v) => { env.shared[k] = v; },
     notify: () => {},
-    checking: () => false,
+    checking: () => Boolean(env.checking),
     appWindow: () => ({ active: true }),
     detectRepo: async (cwd) => { env.detects.push(cwd); return detect ? detect(cwd) : repoOf(cwd); },
     providerFor: (repo) => ({ repo, capabilities: {}, listRuns: async () => [] }),
@@ -342,4 +342,12 @@ test("closing an MR tab drops its page; a repo change drops them all", async () 
   assert.deepEqual([...view.mrPages.keys()], ["6"]);
   view.repoChanged();
   assert.equal(view.mrPages.size, 0);
+});
+
+test("an MR opened from props.open does not load its page while herdr-app checks", () => {
+  const key = JSON.stringify({ kind: "gitlab", host: "gl.test", path: "g/p", mr: 3 });
+  const checked = setup({ given: { view: "full", open: key }, checking: true });
+  assert.equal(checked.env.pages[0].loaded, undefined);
+  const live = setup({ given: { view: "full", open: key } });
+  assert.equal(live.env.pages[0].loaded, 1);
 });

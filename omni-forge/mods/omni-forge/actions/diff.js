@@ -92,7 +92,7 @@ export async function openMrFile({ repo, loc, mr, path }) {
     const plan = openDiffPlan({ map: shared(DIFF_TABS), open, spaces: spaces(), spaceId, target, now: Date.now() });
     setShared(DIFF_OPEN, { ...open, ...plan.open });
     if (plan.select) run("tab.select", { id: plan.select });
-    else if (plan.newTab) run("tab.new", { name: plan.newTab.name, mod: DIFF_MOD, props: { view: "diff" } });
+    else if (plan.newTab) run("tab.new", { name: plan.newTab.name, mod: DIFF_MOD, props: { view: "diff", target } });
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e?.message ?? e) };

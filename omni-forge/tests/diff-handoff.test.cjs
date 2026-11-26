@@ -49,7 +49,7 @@ const mr = { number: 7, target: "main" };
 test("the keys and the plan are git-graph's", async () => {
   const { mod } = setup();
   const place = path.join(__dirname, "../../git-graph/mods/git-graph/place.js");
-  if (!fs.existsSync(place)) return;
+  assert.ok(fs.existsSync(place), "git-graph's place.js is in this repo");
   const g = await import(pathToFileURL(place).href);
   assert.equal(mod.DIFF_TABS, g.DIFF_TABS);
   assert.equal(mod.DIFF_OPEN, g.DIFF_OPEN);
@@ -82,7 +82,7 @@ test("openMrFile hands a range target over: gitDir is the cache dir, refs are MR
     base: "refs/omni-forge/mr/7/base", head: "refs/omni-forge/mr/7/head",
     label: "!7 · src/cart.js",
   });
-  assert.deepEqual(plain(env.runs), [["tab.new", { name: "cart.js", mod: "git-graph", props: { view: "diff" } }]]);
+  assert.deepEqual(plain(env.runs), [["tab.new", { name: "cart.js", mod: "git-graph", props: { view: "diff", target: plain(open.target) } }]]);
 });
 
 test("a live Diff tab is selected instead of a new one", async () => {

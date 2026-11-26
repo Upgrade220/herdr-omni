@@ -4,11 +4,11 @@ const assert = require("node:assert/strict");
 const { load } = require("./load.cjs");
 const plain = (x) => JSON.parse(JSON.stringify(x)); // objects from the vm context have another prototype
 
-function setup({ detail, opened = [] } = {}) {
+function setup({ detail, opened = [], results = [] } = {}) {
   const env = { opened, notified: [], labels: [] };
   const mod = load(["ci/poller.js", "forge/model.js", "views/runs.js", "views/mrs.js", "views/ui.js", "views/mr-page.js"], {
     notify: (n) => env.notified.push(n),
-    openMrFile: async (a) => { env.opened.push(a); return { ok: true }; },
+    openMrFile: async (a) => { env.opened.push(a); return results.shift() ?? { ok: true }; },
   });
   const owner = {
     repo: { kind: "gitlab", host: "git.example.org", path: "group/app", url: "u" },
@@ -93,7 +93,7 @@ test("mrWebUrl: the MR's url, else built from the repo", () => {
   assert.equal(mod.mrWebUrl({ kind: "github", host: "github.com", path: "o/r" }, "7", { url: "https://x/y" }), "https://x/y");
 });
 
-test("openFile hands the path to openMrFile and toasts a failure", async () => {
+test("openFile hands the path to openMrFile", async () => {
   const { page, cx, settle, env, owner } = setup();
   page.load(cx); await settle();
   page.openFile(cx, "src/cart.js");
@@ -102,4 +102,22 @@ test("openFile hands the path to openMrFile and toasts a failure", async () => {
   assert.equal(env.opened[0].path, "src/cart.js");
   assert.equal(env.opened[0].mr.number, 7);
   assert.equal(env.opened[0].repo, owner.repo);
+});
+
+test("a failed file open is kept on the page, not toasted; the next success clears it", async () => {
+  const { page, cx, settle, env } = setup({ results: [{ ok: false, error: "fatal: could not resolve host" }, { ok: true }] });
+  page.load(cx); await settle();
+  page.openFile(cx, "a.js"); await settle();
+  assert.deepEqual(plain(page.fileError), { path: "a.js", error: "fatal: could not resolve host" });
+  assert.deepEqual(env.notified, []);
+  page.openFile(cx, "b.js"); await settle();
+  assert.equal(page.fileError, null);
+});
+
+test("dismissing the file error clears it", async () => {
+  const { page, cx, settle } = setup({ results: [{ ok: false, error: "x" }] });
+  page.load(cx); await settle();
+  page.openFile(cx, "a.js"); await settle();
+  page.dismissFileError(cx);
+  assert.equal(page.fileError, null);
 });

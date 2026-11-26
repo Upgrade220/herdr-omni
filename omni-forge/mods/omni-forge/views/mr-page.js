@@ -1,14 +1,13 @@
 // MrPage: one MR's page inside the full view's MR tab (read side): header, description, discussion,
 // changed files. `owner` is the FullView (repo, loc, provider, gen, tabs, mrPages, openRun()). Like
 // Detail, one object per tab with a stale guard; no cx is stored. Polls every 15 s while its tab shows.
-import { div } from "gpui-kit";
+import { div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { notify } from "herdr";
 import { nextDelay } from "../ci/poller.js";
 import { ago } from "./runs.js";
 import { mrNumber } from "./mrs.js";
 import { openMrFile } from "../actions/diff.js";
-import { pill, statusPill, section, button, busyState, mono } from "./ui.js";
+import { pill, statusPill, section, button, busyState, mono, icon } from "./ui.js";
 
 export const POLL_MS = 15000;
 
@@ -45,6 +44,7 @@ export class MrPage {
     this.errors = 0;
     this.nextAt = 0;
     this.opening = new Set(); // paths whose file is being opened
+    this.fileError = null; // { path, error } of the last file that could not be shown
   }
 
   get repo() { return this.owner.repo; }
@@ -76,7 +76,13 @@ export class MrPage {
     });
   }
 
-  // Shows a changed file in the Diff tab. A failure is a toast: the page itself is fine.
+  dismissFileError(cx) {
+    this.fileError = null;
+    cx.notify();
+  }
+
+  // Shows a changed file in the Diff tab. A failure stays on the page (fileError) until dismissed or
+  // the next successful open.
   openFile(cx, path) {
     if (this.opening.has(path) || !this.data) return;
     this.opening.add(path);
@@ -85,7 +91,7 @@ export class MrPage {
     cx.spawn(async (cx) => {
       try {
         const res = await openMrFile({ repo: this.repo, loc: this.owner.loc, mr, path });
-        if (!res.ok) notify({ title: `Cannot open ${path}`, body: res.error, level: "error" });
+        this.fileError = res.ok ? null : { path, error: res.error };
       } finally {
         this.opening.delete(path);
         cx.notify();
@@ -127,8 +133,19 @@ export class MrPage {
         .child(div().px(14).py(4).text_size(13).text_color(description ? t.foreground : t.dim).child(description || "No description."))
         .child(section(t, "DISCUSSION", threads.length, t.muted))
         .children(threads.length ? threads.map((th, i) => this.thread(t, th, i, now)) : [div().px(14).py(4).text_size(12).text_color(t.dim).child("No discussion yet.")])
+        .when(Boolean(this.fileError), (e) => e.child(this.fileErrorBox(t, mr, url)))
         .child(section(t, "FILES", files.length, t.muted))
         .children(files.length ? files.map((f, i) => this.fileRow(t, f, i)) : [div().px(14).py(4).text_size(12).text_color(t.dim).child("No changed files.")]));
+  }
+
+  fileErrorBox(t, mr, url) {
+    const { path, error } = this.fileError;
+    return v_flex().id("mr-file-error").flex_none().mx(14).my(4).p(10).gap(8).items_start().rounded(8).bg(t.raised)
+      .child(div().text_size(12).text_color(t.ansi1).child(`Could not fetch ${mrNumber(this.repo.kind, mr.number)} to show ${path}`))
+      .child(div().px(8).py(4).rounded(6).text_size(12).font_family(mono()).text_color(t.foreground).child(error))
+      .child(h_flex().gap(8)
+        .child(button(t, "mr-file-error-web", "Open in browser", (cx) => cx.open_url(url)))
+        .child(button(t, "mr-file-error-dismiss", "Dismiss", (cx) => this.dismissFileError(cx))));
   }
 
   head(t, mr, now) {
@@ -166,9 +183,11 @@ export class MrPage {
   }
 
   fileRow(t, f, i) {
+    const busy = this.opening.has(f.path);
     return h_flex().id(`mr-file-${i}`).min_h(28).flex_none().px(14).gap(8).items_center().cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => this.openFile(cx, f.path))
-      .child(div().flex_1().min_w(0).truncate().text_size(12).font_family(mono()).child(f.path))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).font_family(mono()).text_color(busy ? t.dim : t.foreground).child(f.path))
+      .when(busy, (e) => e.child(svg(icon("spinner")).size(11).flex_none().text_color(t.dim).spin(900)))
       .child(div().flex_none().text_size(11).text_color(t.ansi2).child(`+${f.add ?? 0}`))
       .child(div().flex_none().text_size(11).text_color(t.ansi1).child(`−${f.del ?? 0}`));
   }

@@ -80,15 +80,15 @@ export class FullView extends RepoView {
       this.loc = { key: `open|${open.kind}|${open.host}|${open.path}`, cwd: null, machine: null, branch: null };
       this.seenTerm = nextLoc({ loc: this.loc, seenTerm: null, lastLoc: null }, this.snap()).seenTerm;
     }
-    if (open.mr != null) this.openMr(open.mr, cx);
+    if (open.mr != null) this.openMr(open.mr, cx, undefined, { load });
     else this.openRun({ id: open.runId }, cx, { load });
   }
 
   // Opens (or selects) the MR's tab and its page.
-  openMr(number, cx, title) {
+  openMr(number, cx, title, { load = true } = {}) {
     const tab = this.tabs.openMr({ number, title });
     let page = this.mrPages.get(tab.number);
-    if (!page) { page = new MrPage(this, tab.number); this.mrPages.set(tab.number, page); page.load(cx); }
+    if (!page) { page = new MrPage(this, tab.number); this.mrPages.set(tab.number, page); if (load) page.load(cx); }
     cx.notify();
   }
 
