@@ -8,8 +8,10 @@
 // isn't shown gets no layout, so the focused tab at that moment is the one showing it.
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, focused, panes, props, shared, setShared, checking, window as appWindow } from "herdr";
+import { theme, focused, panes, props, shared, setShared, checking, exec, window as appWindow } from "herdr";
 import { watchKey } from "../ci/watch.js";
+import { dropMr } from "../forge/mr-cache.js";
+import { mrCacheDir } from "../actions/diff.js";
 import { ago } from "./runs.js";
 import { Detail, WATCHABLE } from "./detail.js";
 import { LogView } from "./log.js";
@@ -32,6 +34,7 @@ export class FullView extends RepoView {
     this.details = new Map(); // runId -> Detail, one per run tab
     this.logs = new Map(); // log tab id -> embedded LogView
     this.mrPages = new Map(); // MR number (string) -> MrPage, one per MR tab
+    this.drops = []; // cache refs of closed or evicted merged/closed MR tabs, waiting for a cx
     this.tabs.onEvict = (tab) => this.dropTab(tab);
     this.ownTab = null;
     this.mrList = new MrList(this);
@@ -91,6 +94,7 @@ export class FullView extends RepoView {
     const tab = this.tabs.openMr({ number, title });
     let page = this.mrPages.get(tab.number);
     if (!page) { page = new MrPage(this, tab.number); this.mrPages.set(tab.number, page); if (load) page.load(cx); }
+    this.flushDrops(cx);
     cx.notify();
   }
 
@@ -111,6 +115,8 @@ export class FullView extends RepoView {
     if (checking()) return;
     this.follow(cx);
     this.watchTick(cx);
+    this.pruneTick(cx);
+    this.flushDrops(cx);
     if (!this.visible()) return;
     const asked = shared(OPEN);
     if (asked && mayTakeOpen(asked, { focused: focused(), panes: panes(), ownTab: this.ownTab })) {
@@ -142,6 +148,7 @@ export class FullView extends RepoView {
     }
     if (run.status && WATCHABLE.has(run.status)) this.watches.add(watchKey({ ...this.repo, runId: id }), run);
     if (load) detail.load(cx);
+    this.flushDrops(cx);
     cx.notify();
   }
 
@@ -167,6 +174,7 @@ export class FullView extends RepoView {
   closeTab(id, cx) {
     const tab = this.tabs.close(id);
     if (tab) this.dropTab(tab);
+    this.flushDrops(cx);
     cx.notify();
   }
 
@@ -174,7 +182,32 @@ export class FullView extends RepoView {
   dropTab(tab) {
     if (tab.kind === "run") this.details.delete(tab.runId);
     if (tab.kind === "log") this.logs.delete(tab.id);
-    if (tab.kind === "mr") { this.mrPages.get(tab.number)?.dispose(); this.mrPages.delete(tab.number); }
+    if (tab.kind === "mr") {
+      const state = this.mrPages.get(tab.number)?.data?.mr?.state;
+      this.mrPages.get(tab.number)?.dispose();
+      this.mrPages.delete(tab.number);
+      this.dropMrCache(tab, state);
+    }
+  }
+
+  // A merged or closed MR no longer needs its refs in the cache repo; nothing else shows it.
+  dropMrCache(tab, state) {
+    if (state !== "merged" && state !== "closed") return;
+    if (!this.repo || this.tabs.list.some((t) => t.kind === "mr" && t.number === tab.number)) return;
+    this.drops.push({ repo: this.repo, machine: this.loc?.machine ?? null, number: Number(tab.number) });
+  }
+
+  // Runs the queued drops (fire and forget; no cx is kept, so the callers that have one flush).
+  flushDrops(cx) {
+    if (checking()) return;
+    for (const { repo, machine, number } of this.drops.splice(0)) {
+      cx.spawn(async () => {
+        try {
+          const dir = await mrCacheDir({ repo, machine });
+          await dropMr(exec, { on: machine ?? undefined, dir, number });
+        } catch { /* the cache is only a convenience */ }
+      });
+    }
   }
 
   back(cx) {

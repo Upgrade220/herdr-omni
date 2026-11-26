@@ -12,6 +12,11 @@ export function cacheDir({ local, appHome, home, host, path }) {
   return `${base}/mr-cache/${host}/${path}.git`;
 }
 
+// The local machine's cache folder; remote machines keep theirs under their own $HOME (cacheDir).
+export function cacheRoot(appHome) {
+  return `${appHome}/data/omni-forge/mr-cache`;
+}
+
 export function MR_REFS(n) {
   return { head: `refs/omni-forge/mr/${n}/head`, base: `refs/omni-forge/mr/${n}/base` };
 }
@@ -73,7 +78,9 @@ export async function ensureMr(exec, opts) {
   return again.ok ? second : { ok: false, error: again.error };
 }
 
+// Harmless on a missing cache: git fails and run() swallows it.
 export async function dropMr(exec, { on, dir, number }) {
+  if (!safeDir(dir)) return;
   const refs = MR_REFS(number);
   for (const ref of [refs.head, refs.base]) await run(exec, "git", [`--git-dir=${dir}`, "update-ref", "-d", ref], { on });
 }

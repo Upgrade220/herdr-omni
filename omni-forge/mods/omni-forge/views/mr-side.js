@@ -33,6 +33,7 @@ export class MrSideView extends RepoView {
   tick(cx) {
     if (checking()) return;
     this.follow(cx);
+    this.pruneTick(cx);
     if (this.provider && this.pollVisible() && this.mrList.tickDue()) this.mrList.load(cx);
   }
 

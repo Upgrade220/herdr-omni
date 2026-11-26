@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFile, execFileSync } = require("node:child_process");
 const { load } = require("./load.cjs");
-const { cacheDir, MR_REFS, sourceRef, fetchMr, diffOk, ensureMr, dropMr, pruneStale } = load(["forge/mr-cache.js"]);
+const { cacheDir, MR_REFS, sourceRef, fetchMr, diffOk, ensureMr, dropMr, pruneStale, cacheRoot } = load(["forge/mr-cache.js"]);
 
 const ENV = {
   ...process.env,
@@ -180,4 +180,21 @@ test("pruneStale never deletes a stale dir that is not a .git cache", async () =
   execFileSync("touch", ["-t", "200001010000", path.join(dir, "omni-forge-used")]);
   await pruneStale(exec, { root, days: 14 });
   assert.equal(fs.existsSync(dir), true);
+});
+
+test("dropMr on a missing cache dir is harmless", async () => {
+  const { exec } = adapter();
+  const dir = path.join(os.tmpdir(), "omni-forge-none", "mr-cache", "h", "x.git");
+  await assert.doesNotReject(dropMr(exec, { dir, number: 3 }));
+  assert.equal(fs.existsSync(dir), false);
+});
+
+test("dropMr refuses a dir that is not a cache repo", async () => {
+  const { exec, calls } = adapter();
+  await dropMr(exec, { dir: "/some/where", number: 3 });
+  assert.equal(calls.length, 0);
+});
+
+test("cacheRoot is the local cache folder", () => {
+  assert.equal(cacheRoot("/app"), "/app/data/omni-forge/mr-cache");
 });

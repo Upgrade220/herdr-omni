@@ -60,6 +60,12 @@ function ensureSerial(dir, opts) {
   return next;
 }
 
+// The MR cache repo's folder for this repo on `machine` (null: this computer).
+export async function mrCacheDir({ repo, machine }) {
+  const home = await homeOf(machine);
+  return cacheDir({ local: !machine, appHome: machine ? "" : home, home, host: repo.host, path: repo.path });
+}
+
 const text = (res) => (res.stderr || res.stdout || `exit ${res.code}`).trim();
 
 // The Diff tab's target for one MR file, as the `range` source reads it.
@@ -81,8 +87,7 @@ export async function openMrFile({ repo, loc, mr, path }) {
       if (remote.code !== 0 || !remote.stdout.trim()) return { ok: false, error: text(remote) };
       url = remote.stdout.trim();
     }
-    const home = await homeOf(loc.machine);
-    const dir = cacheDir({ local: !loc.machine, appHome: loc.machine ? "" : home, home, host: repo.host, path: repo.path });
+    const dir = await mrCacheDir({ repo, machine: loc.machine });
     const res = await ensureSerial(dir, { on, repoRoot: root, dir, url, kind: repo.kind, number: mr.number, target: mr.target });
     if (!res.ok) return { ok: false, error: res.error };
     const spaceId = focused()?.space;

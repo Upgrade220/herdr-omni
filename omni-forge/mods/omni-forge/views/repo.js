@@ -3,9 +3,10 @@
 // (ci/watch.js). Subclasses call initRepo() from init and drive tick() from their own timer.
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
-import { exec, focused, panes, spaces, shared, setShared, notify } from "herdr";
+import { exec, appHome, focused, panes, spaces, shared, setShared, notify } from "herdr";
 import { detectRepo } from "../forge/detect.js";
 import { providerFor } from "../forge/providers.js";
+import { cacheRoot, pruneStale } from "../forge/mr-cache.js";
 import { nextDelay } from "../ci/poller.js";
 import { Watches, watchKey, claimOwner, watchTick } from "../ci/watch.js";
 import { filterRuns, chipCounts, anyLive } from "./runs.js";
@@ -16,6 +17,8 @@ const CLAIM_MS = 30000;
 const LIMIT = 30;
 export const WATCHES = "omni-forge.watches";
 export const OWNER = "omni-forge.watch-owner";
+export const PRUNE_OWNER = "omni-forge.prune-owner";
+const PRUNE_MS = 24 * 3600 * 1000;
 export const CHIP_LIST = [
   { id: "running", label: "Running", color: (t) => t.working },
   { id: "failed", label: "Failed", color: (t) => t.ansi1 },
@@ -48,6 +51,9 @@ export class RepoView {
     this.watchAt = 0;
     this.watchErrors = 0;
     this.watchBusy = false;
+    this.pruneClaimAt = 0;
+    this.pruneAt = 0;
+    this.pruneBusy = false;
     this.resetList();
     this.listBusy = false;
     this.seenTerm = null;
@@ -213,6 +219,25 @@ export class RepoView {
       } finally {
         this.watchBusy = false;
         this.watchAt = now + nextDelay({ visible: false, anyRunning: false, errors: this.watchErrors });
+      }
+    });
+  }
+
+  // Once per start and then every 24 h, one copy (the prune owner) deletes the local MR caches
+  // nobody used for 14 days. Other machines' caches are cleaned only when their MR is merged or closed.
+  pruneTick(cx) {
+    const now = Date.now();
+    if (now < this.pruneClaimAt) return;
+    this.pruneClaimAt = now + CLAIM_MS;
+    const owns = claimOwner({ get: () => shared(PRUNE_OWNER), set: (v) => setShared(PRUNE_OWNER, v), now: Date.now, id: this.id });
+    if (!owns || this.pruneBusy || now < this.pruneAt) return;
+    this.pruneBusy = true;
+    this.pruneAt = now + PRUNE_MS;
+    cx.spawn(async () => {
+      try {
+        await pruneStale(exec, { root: cacheRoot(appHome()) });
+      } catch { /* retried in 24 h */ } finally {
+        this.pruneBusy = false;
       }
     });
   }

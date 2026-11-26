@@ -12,7 +12,7 @@ const panes = [
 const focusOn = (pane, tab) => ({ space: "s1", tab, pane, terminal: panes.find((p) => p.pane === pane)?.terminal ?? null, cwd: panes.find((p) => p.pane === pane)?.cwd ?? null });
 
 function setup({ checking = false, given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes } = {}) {
-  const env = { checking, pages: [], focus, shared: { ...shared }, detects: [], opened: [], panes: paneList, logs: [], logTicks: [], logRefreshes: [] };
+  const env = { checking, pages: [], focus, shared: { ...shared }, detects: [], opened: [], panes: paneList, logs: [], logTicks: [], logRefreshes: [], drops: [], prunes: [] };
   const repoOf = (cwd) => ({ kind: "github", host: "github.com", path: `o/${cwd.split("/").pop()}`, url: "" });
   class Detail {
     constructor(owner, runId) { this.runId = runId; env.opened.push(runId); }
@@ -46,6 +46,11 @@ function setup({ checking = false, given = {}, focus = focusOn("pf", "F"), share
     Detail,
     LogView,
     MrPage,
+    appHome: () => "/app",
+    cacheRoot: (home) => `${home}/data/omni-forge/mr-cache`,
+    mrCacheDir: async ({ repo, machine }) => `/app/data/omni-forge/mr-cache/${repo.host}/${repo.path}.git`,
+    dropMr: async (_exec, a) => { env.drops.push({ dir: a.dir, number: a.number, on: a.on }); },
+    pruneStale: async (_exec, a) => { env.prunes.push(a.root); },
     WATCHABLE: new Set(["running", "pending", "manual"]),
   });
   const pending = [];
@@ -351,4 +356,81 @@ test("an MR opened from props.open does not load its page while herdr-app checks
   assert.equal(checked.env.pages[0].loaded, undefined);
   const live = setup({ given: { view: "full", open: key } });
   assert.equal(live.env.pages[0].loaded, 1);
+});
+
+// ---- MR cache cleanup ----------------------------------------------------------
+
+test("closing the tab of a merged or closed MR drops its cache refs; an open MR keeps them", async () => {
+  const { view, env, cx, settle } = opened();
+  for (const [n, state] of [["5", "merged"], ["6", "closed"], ["7", "open"]]) {
+    view.openMr(n, cx);
+    env.pages.find((p) => p.number === n).data = { mr: { state } };
+    view.closeTab(`mr:${n}`, cx);
+  }
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(env.drops.map((d) => [d.number, d.dir]))), [
+    [5, "/app/data/omni-forge/mr-cache/gl.test/g/p.git"],
+    [6, "/app/data/omni-forge/mr-cache/gl.test/g/p.git"],
+  ]);
+});
+
+test("an MR page that never loaded drops nothing", async () => {
+  const { view, env, cx, settle } = opened();
+  view.openMr("5", cx);
+  view.closeTab("mr:5", cx);
+  await settle();
+  assert.deepEqual(env.drops, []);
+});
+
+test("another tab showing the same MR keeps the refs", async () => {
+  const { view, env, cx, settle } = opened();
+  view.openMr("5", cx);
+  env.pages[0].data = { mr: { state: "merged" } };
+  const tab = view.tabs.find("mr:5");
+  view.tabs.list.push({ ...tab, id: "mr:5:dup" }); // a second tab for the same MR
+  view.dropTab(tab);
+  await settle();
+  assert.deepEqual(env.drops, []);
+});
+
+test("eviction of a merged MR tab drops its refs too", async () => {
+  const { view, env, cx, settle } = opened();
+  view.openMr("1", cx);
+  env.pages[0].data = { mr: { state: "merged" } };
+  for (let i = 2; i <= 9; i++) view.openMr(String(i), cx);
+  await settle();
+  assert.deepEqual(env.drops.map((d) => d.number), [1]);
+});
+
+test("no cleanup while herdr-app checks", async () => {
+  const { view, env, cx, settle } = opened();
+  view.openMr("5", cx);
+  env.pages[0].data = { mr: { state: "merged" } };
+  env.checking = true;
+  view.closeTab("mr:5", cx);
+  view.tick(cx);
+  await settle();
+  assert.deepEqual(env.drops, []);
+  assert.deepEqual(env.prunes, []);
+});
+
+test("one copy prunes the local cache once; the other does not", async () => {
+  const a = setup({ given: { view: "full" } });
+  const shared = a.env.shared;
+  const b = setup({ given: { view: "full" } });
+  b.env.shared = shared;
+  a.view.tick(a.cx);
+  b.view.tick(b.cx);
+  await a.settle(); await b.settle();
+  assert.deepEqual(a.env.prunes, ["/app/data/omni-forge/mr-cache"]);
+  assert.deepEqual(b.env.prunes, []);
+  assert.equal(shared["omni-forge.prune-owner"].id, a.view.id);
+  a.view.claimAt = 0; a.view.pruneClaimAt = 0;
+  a.view.tick(a.cx);
+  await a.settle();
+  assert.equal(a.env.prunes.length, 1); // the next prune is 24 h away
+  a.view.pruneAt = 0; a.view.pruneClaimAt = 0;
+  a.view.tick(a.cx);
+  await a.settle();
+  assert.equal(a.env.prunes.length, 2);
 });

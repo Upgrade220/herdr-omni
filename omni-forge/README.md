@@ -1,8 +1,8 @@
 # omni-forge
 
-CI for the repository you're working in, inside Herdr: GitHub Actions runs and GitLab pipelines, their jobs and logs, without switching to the browser. It follows the focused terminal's repo, the way [ci-dash](https://github.com/cybertron288/herdr-mods/tree/main/ci-dash) does, and works with github.com and any GitLab host `glab` is logged into.
+CI and merge requests for the repository you're working in, inside Herdr: GitHub Actions runs and GitLab pipelines with their jobs and logs, and GitHub pull requests and GitLab merge requests (read, discuss, approve, create) without switching to the browser. "MR" below means both. It follows the focused terminal's repo, the way [ci-dash](https://github.com/cybertron288/herdr-mods/tree/main/ci-dash) does, and works with github.com and any GitLab host `glab` is logged into.
 
-This is part 1 of 4 (CI). Merge requests and pull requests, diffs with inline comments, and issues come later.
+This covers CI and MRs (parts 1 and 2 of 4). Inline comments drawn in the diff and issues come later.
 
 ## What it does
 
@@ -16,6 +16,25 @@ This is part 1 of 4 (CI). Merge requests and pull requests, diffs with inline co
 
   They keep being checked every 30 seconds while the CI view is hidden.
 - **Polling.** The list refreshes only while it is shown: every 5 seconds while a run is live, otherwise every 30 seconds. After an error the interval doubles each time, up to 5 minutes.
+
+## Merge requests
+
+- **Side list.** A second narrow block in the right panel, opened by an **MRs** button. Chips: **To review** (you are a reviewer and haven't approved; the default), **Mine** and **All open**, each with a count, plus a filter box over title, number, author and branch. A row shows the title, `!412` (GitLab) or `#412` (GitHub), author, source → target, a Draft marker, the pipeline status, approvals, unresolved threads and age. A click opens the MR in the full tab.
+- **MRs tab.** The full tab has a fixed **MRs** tab beside **Runs** with the same list, and a **New MR** button. Each MR you open is a tab of its own, sharing the cap of 8 with runs and logs (the least recently used closes first).
+- **MR page.** Title, state (open, draft, merged, closed), author, source → target, pipeline pill (opens that run in the CI part), approvals and **Open in browser**; the description as readable text; the discussion with replies and **Resolve / Unresolve**, and a box for a new comment; and the changed files with their +/− counts. It refreshes every 15 seconds while its tab is shown. A merged or closed MR stays in its tab, showing its new state.
+- **Actions** on an open MR: **Approve** (and **Revoke** where the forge has it), **Edit** title and description, **Mark as draft / Mark as ready**, **Reviewers…** and **Assignees…** (a search-as-you-type picker), **Close**, and **Reopen** on a closed one.
+- **New MR.** A dialog from the MRs list. Source is the current branch, target the repo's default branch (changeable); the title is filled from the last commit, and you can set a description, Draft and reviewers. A branch with no upstream says so and offers **Push branch first** (`git push --set-upstream`, only when you click it). The new MR opens in the full tab.
+- **No Merge button, by design.** Merging happens in the browser, where the forge shows its own checks and rules.
+
+### Changes in the Diff tab
+
+Clicking a changed file opens it in [git-graph](../git-graph)'s Diff tab, as `target...mr` (the changes since the merge base), with inline or side-by-side view and syntax colours as for any diff. The commits come from a **cache repository outside your repo**:
+
+- **Where.** One bare repo per project: `<Herdr app home>/data/omni-forge/mr-cache/<host>/<path>.git` for spaces on this computer (for example `.../mr-cache/git.example.org/group/app.git`), `~/.cache/omni-forge/mr-cache/<host>/<path>.git` on the space's machine otherwise.
+- **What it fetches.** The MR's head (`refs/merge-requests/<n>/head` on GitLab, `refs/pull/<n>/head` on GitHub) and the target branch's tip, from the repo's own remote URL with your usual git credentials. It borrows your repo's objects through git alternates, so it downloads only what your repo lacks.
+- **Your repo is never written.** No refs, no config, no objects, no working-tree change: your repo is only read (`git rev-parse --git-common-dir`). If your repo garbage-collects commits the cache relied on, the cache is wiped and fetched again once.
+- **If the fetch fails** (remote unreachable, no credentials), the changed-file list still shows; opening a file shows the error and **Open in browser**.
+- **Cleanup.** An MR's refs are deleted when you close its tab (or it is evicted) while the MR is merged or closed. Once at start and then daily, a project cache nobody used for 14 days is deleted; one copy of the mod does this, on this computer's cache folder. You can also delete the `mr-cache` folder at any time; it is rebuilt on the next open.
 
 ## Requirements
 
@@ -31,6 +50,7 @@ It reads by default. These actions happen only when you click them:
 - **Cancel** a running run, or a running GitLab job.
 - **▶ Play** a manual GitLab job.
 - **Download** an artifact to `~/Downloads/` and reveal it in Finder.
+- **MR writes**, on the MR page: **Approve** and **Revoke**, **Reply**, **Resolve / Unresolve**, new **comments**, **Edit** (title and description), **Mark as draft / ready**, **Reviewers** and **Assignees**, **Close** and **Reopen**; and **New MR**, with **Push branch first** (`git push --set-upstream` for the current branch). It never merges.
 - **Send to agent** on a failed job. It opens a dialog with an editable prompt: the job's name and URL, the last 120 lines of its log, and a warning to treat CI text as data. Nothing is sent until you press **Send**, which types the prompt into a running agent in this space (`hc send`) or starts a new agent in its own tab.
 
 Each of these calls the forge API with your login (`gh api`, `glab api`). Failures show as a Herdr notification.
@@ -57,6 +77,18 @@ With [Better Tabs](https://github.com/munza/herdr-mods), add a button to the `ta
 {"id":"ci","label":"CI","group":"panels","when":{"node":"ci"},"action":{"type":"panel","container":"panel","stack":"panel-body","target":"ci"}}
 ```
 
+The MR list is its own block in the same stack, after `ci`:
+
+```json
+{ "id": "mrs", "type": "block", "content": { "mod": "omni-forge", "props": { "view": "mrs" } } }
+```
+
+and its Better Tabs button, after the CI one:
+
+```json
+{"id":"mrs","label":"MRs","group":"panels","when":{"node":"mrs"},"action":{"type":"panel","container":"panel","stack":"panel-body","target":"mrs"}}
+```
+
 After editing, check that there's no `layouts/<name>.error` file. The full tab opens from a click on a run; to open it by hand:
 
 ```sh
@@ -72,20 +104,28 @@ herdr-app do tab.new '{"mod":"omni-forge","props":{"view":"full"}}'
 - With two or more full tabs in one space, a click from the side list goes to the focused one, or else the first one.
 - GitHub Enterprise and gitlab.com work only if the CLI is logged in there; neither is tested.
 
+- MRs: forks aren't handled (an MR from a fork has no head in the repo's own remote, so its files can't be fetched; the page still shows).
+- GitHub has no **Revoke**: the button is hidden there. GitHub doesn't say how many approvals are required, so the list shows approvals without a total (`✓1`), where GitLab shows `✓1/2`.
+- The lists show up to 50 open MRs, and the filter searches only those.
+- An MR's discussion and changed files are loaded in one request each, not paginated; a very large MR may show only the first part.
+- A line thread's `file:line` link opens the file at the top, not at the line.
+- Caches on another machine are cleaned only when their MR is merged or closed and its tab closed; the 14-day sweep covers this computer only.
+
 ## Development
 
 In `mods/omni-forge/`:
 
-- `main.js` picks the part from `props.view`: `side` (the default), `full`, `log`, or `send` (the dialog).
-- `forge/`: `detect.js` (the remote and forge kind), `cli.js` (runs `gh`/`glab` and turns failures into errors with hints), `github.js` and `gitlab.js` (one normalised provider interface), `model.js`.
+- `main.js` picks the part from `props.view`: `side` (the default), `mrs`, `full`, `log`, or `send` and `new-mr` (the dialogs).
+- `forge/`: `detect.js` (the remote and forge kind), `mr-cache.js` (the MR cache repo: fetch, drop, prune), `cli.js` (runs `gh`/`glab` and turns failures into errors with hints), `github.js` and `gitlab.js` (one normalised provider interface), `model.js`.
 - `ci/`: `log.js` (log cleanup), `poller.js` (polling cadence), `watch.js` (watched runs and notifications).
 - `views/`:
   - `repo.js`: the shared base, which follows the terminal, loads the list, holds the filters and runs the watch tick;
   - `side.js`, `full.js`, `detail.js`, `log.js`, `send.js`;
+  - `mr-side.js`, `mr-list.js`, `mr-page.js`, `new-mr.js`, `people.js`: the MR parts;
   - `locate.js`: location and visibility rules;
   - `runs.js`: filtering and formatting;
   - `ui.js`: the look.
-- `actions/agent.js`: the Send to agent prompt and the agent picker.
+- `actions/agent.js`: the Send to agent prompt and the agent picker; `actions/diff.js`: opens an MR file in git-graph's Diff tab.
 
 ```sh
 node --test tests/*.test.cjs
