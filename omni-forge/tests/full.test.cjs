@@ -12,11 +12,16 @@ const panes = [
 const focusOn = (pane, tab) => ({ space: "s1", tab, pane, terminal: panes.find((p) => p.pane === pane)?.terminal ?? null, cwd: panes.find((p) => p.pane === pane)?.cwd ?? null });
 
 function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes } = {}) {
-  const env = { focus, shared: { ...shared }, detects: [], opened: [], panes: paneList, logs: [], logTicks: [], logRefreshes: [] };
+  const env = { pages: [], focus, shared: { ...shared }, detects: [], opened: [], panes: paneList, logs: [], logTicks: [], logRefreshes: [] };
   const repoOf = (cwd) => ({ kind: "github", host: "github.com", path: `o/${cwd.split("/").pop()}`, url: "" });
   class Detail {
     constructor(owner, runId) { this.runId = runId; env.opened.push(runId); }
     load() {}
+  }
+  class MrPage {
+    constructor(owner, number) { this.number = number; this.loading = false; env.pages.push(this); }
+    load() { this.loaded = (this.loaded ?? 0) + 1; }
+    render() { return null; }
   }
   class LogView {
     initEmbedded(props) { this.props = props; env.logs.push(props.jobId); }
@@ -39,6 +44,7 @@ function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect, pa
     providerFor: (repo) => ({ repo, capabilities: {}, listRuns: async () => [] }),
     Detail,
     LogView,
+    MrPage,
     WATCHABLE: new Set(["running", "pending", "manual"]),
   });
   const pending = [];
@@ -315,12 +321,25 @@ test("props.open mrs survives the first repo detection", async () => {
   assert.equal(view.tabs.selected, "mrs");
 });
 
-test("Refresh on an MR item tab does nothing and shows no spinner", async () => {
-  const { view, cx } = opened();
+test("Refresh on an MR item tab reloads that page, not a list", async () => {
+  const { view, env, cx } = opened();
   view.openMr("5", cx);
   let loads = 0;
   view.loadList = () => { loads++; };
   view.mrList.load = () => { loads++; };
+  const loaded = env.pages[0].loaded; // opening loads once
   view.refresh(cx);
   assert.equal(loads, 0);
+  assert.equal(env.pages[0].loaded, loaded + 1);
+});
+
+test("closing an MR tab drops its page; a repo change drops them all", async () => {
+  const { view, cx } = opened();
+  view.openMr("5", cx);
+  view.openMr("6", cx);
+  assert.deepEqual([...view.mrPages.keys()], ["5", "6"]);
+  view.closeTab("mr:5", cx);
+  assert.deepEqual([...view.mrPages.keys()], ["6"]);
+  view.repoChanged();
+  assert.equal(view.mrPages.size, 0);
 });

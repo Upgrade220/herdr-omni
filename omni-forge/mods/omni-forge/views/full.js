@@ -14,6 +14,7 @@ import { ago } from "./runs.js";
 import { Detail, WATCHABLE } from "./detail.js";
 import { LogView } from "./log.js";
 import { MrList } from "./mr-list.js";
+import { MrPage } from "./mr-page.js";
 import { Tabs } from "./tabs.js";
 import { parseOpen, isVisible, mayTakeOpen, fullTabs, nextLoc, OPEN, RUNS_KEY, MRS_KEY } from "./locate.js";
 import { RepoView, sameRepo } from "./repo.js";
@@ -29,6 +30,7 @@ export class FullView extends RepoView {
     this.tabs = new Tabs();
     this.details = new Map(); // runId -> Detail, one per run tab
     this.logs = new Map(); // log tab id -> embedded LogView
+    this.mrPages = new Map(); // MR number (string) -> MrPage, one per MR tab
     this.tabs.onEvict = (tab) => this.dropTab(tab);
     this.ownTab = null;
     this.mrList = new MrList(this);
@@ -45,6 +47,7 @@ export class FullView extends RepoView {
     if (keepMrs) this.tabs.select("mrs");
     this.details.clear();
     this.logs.clear();
+    this.mrPages.clear();
     this.mrList = new MrList(this); // the gen bump in resetList drops the old one's answer
   }
 
@@ -52,6 +55,12 @@ export class FullView extends RepoView {
   get detail() {
     const tab = this.tabs.find(this.tabs.selected);
     return tab?.kind === "run" ? this.details.get(tab.runId) ?? null : null;
+  }
+
+  // The selected MR tab's page, or null elsewhere.
+  get mrPage() {
+    const tab = this.tabs.find(this.tabs.selected);
+    return tab?.kind === "mr" ? this.mrPages.get(tab.number) ?? null : null;
   }
 
   selectedLog() {
@@ -75,9 +84,11 @@ export class FullView extends RepoView {
     else this.openRun({ id: open.runId }, cx, { load });
   }
 
-  // Opens (or selects) the MR's tab. The page itself comes later; the tab says it is loading.
+  // Opens (or selects) the MR's tab and its page.
   openMr(number, cx, title) {
-    this.tabs.openMr({ number, title });
+    const tab = this.tabs.openMr({ number, title });
+    let page = this.mrPages.get(tab.number);
+    if (!page) { page = new MrPage(this, tab.number); this.mrPages.set(tab.number, page); page.load(cx); }
     cx.notify();
   }
 
@@ -112,6 +123,7 @@ export class FullView extends RepoView {
     if (log) log.tick(cx, now);
     else if (this.detail) { if (now >= this.detail.nextAt) this.detail.load(cx); }
     else if (this.tabs.selected === "mrs") { if (this.mrList.tickDue(now)) this.mrList.load(cx); }
+    else if (this.mrPage) { if (now >= this.mrPage.nextAt) this.mrPage.load(cx); }
     else if (this.tabs.selected === "runs" && now >= this.listAt) this.loadList(cx);
   }
 
@@ -160,6 +172,7 @@ export class FullView extends RepoView {
   dropTab(tab) {
     if (tab.kind === "run") this.details.delete(tab.runId);
     if (tab.kind === "log") this.logs.delete(tab.id);
+    if (tab.kind === "mr") this.mrPages.delete(tab.number);
   }
 
   back(cx) {
@@ -171,7 +184,7 @@ export class FullView extends RepoView {
     const log = this.selectedLog();
     if (log) log.refresh(cx);
     else if (this.tabs.selected === "mrs") this.mrList.load(cx);
-    else if (this.tabs.find(this.tabs.selected)?.kind === "mr") return; // the MR page comes later
+    else if (this.mrPage) this.mrPage.load(cx);
     else if (this.detail) this.detail.load(cx);
     else this.loadList(cx);
   }
@@ -183,7 +196,7 @@ export class FullView extends RepoView {
     const log = this.selectedLog();
     const mrTab = this.tabs.find(this.tabs.selected)?.kind;
     const inMrs = mrTab === "mrs" || mrTab === "mr";
-    const loading = log ? log.busy : mrTab === "mrs" ? this.mrList.busy : mrTab === "mr" ? false : this.detail ? this.detail.loading : this.listBusy || this.detecting;
+    const loading = log ? log.busy : mrTab === "mrs" ? this.mrList.busy : mrTab === "mr" ? Boolean(this.mrPage?.loading) : this.detail ? this.detail.loading : this.listBusy || this.detecting;
     const header = h_flex().h(44).flex_none().px(14).gap(10).items_center().border_b_1().border_color(t.border)
       .child(div().flex_none().font_semibold().child(inMrs ? "MRs" : "CI"))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(this.repo?.path ?? ""))
@@ -199,7 +212,7 @@ export class FullView extends RepoView {
     } else if (mrTab === "mrs") {
       body = this.mrList.render(t, { ids: "fmr", onOpen: (m, cx) => this.openMr(m.number, cx, m.title) });
     } else if (mrTab === "mr") {
-      body = busyState(t, "Loading…");
+      body = this.mrPage ? this.mrPage.render(t) : busyState(t, "Loading…");
     } else if (this.detail) {
       body = this.detail.render(t);
     } else {

@@ -146,8 +146,8 @@ export class RepoView {
     });
   }
 
-  setRepo({ kind, host, path }) {
-    this.repo = { kind, host, path };
+  setRepo({ kind, host, path, url }) {
+    this.repo = url ? { kind, host, path, url } : { kind, host, path }; // url: the remote as detected, for fetching an MR
     this.provider = providerFor(this.repo);
     this.repoError = null;
     this.repoChanged();

@@ -47,6 +47,12 @@ export class Tabs {
     return this.open({ id: `mr:${number}`, kind: "mr", label: `#${number} ${title ?? ""}`.trim(), number: String(number) });
   }
 
+  // The MR's real name once its page has loaded.
+  setMr({ number, label }) {
+    const tab = this.find(`mr:${number}`);
+    if (tab) tab.label = label;
+  }
+
   openLog({ runId, jobId, name, status }) {
     return this.open({ id: `log:${runId}:${jobId}`, kind: "log", label: name || `Job ${jobId}`, runId: String(runId), jobId: String(jobId), status });
   }
