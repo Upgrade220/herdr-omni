@@ -58,7 +58,7 @@
     "discussions": {
      "nodes": [
       {
-       "id": "d1",
+       "id": "gid://gitlab/Discussion/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
        "resolvable": false,
        "resolved": false,
        "notes": {
@@ -77,7 +77,7 @@
        }
       },
       {
-       "id": "d2",
+       "id": "gid://gitlab/Discussion/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
        "resolvable": true,
        "resolved": false,
        "notes": {
@@ -111,7 +111,7 @@
        }
       },
       {
-       "id": "d3",
+       "id": "gid://gitlab/Discussion/cccccccccccccccccccccccccccccccccccccccc",
        "resolvable": true,
        "resolved": true,
        "notes": {

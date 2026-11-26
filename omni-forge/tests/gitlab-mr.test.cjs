@@ -17,6 +17,7 @@ function recorder(reply) {
 }
 const ok = (stdout = "{}") => ({ code: 0, stdout, stderr: "" });
 const repo = { host: "git.example.org", path: "grp/app" };
+const D2 = "b".repeat(40);
 const members = JSON.stringify([{ id: 7, username: "bob", name: "Bob B" }, { id: 8, username: "bobby", name: "Bobby" }]);
 
 test("mrStateOf", () => {
@@ -68,14 +69,14 @@ test("mrDetail keeps thread order, flags system notes, carries path/line", async
   assert.equal(d.mr.number, 12);
   assert.equal(d.mr.unresolved, 1);
   assert.equal(d.description, "Adds the widget.");
-  assert.deepEqual([...d.threads.map((t) => t.id)], ["d1", "d2", "d3"]);
+  assert.deepEqual([...d.threads.map((t) => t.id)], ["a".repeat(40), "b".repeat(40), "c".repeat(40)]);
   assert.equal(d.threads[0].notes[0].system, true);
   assert.equal(d.threads[0].resolvable, false);
   assert.equal(d.threads[1].path, "src/widget.js");
   assert.equal(d.threads[1].line, 7);
   assert.equal(d.threads[1].notes.length, 2);
   assert.equal(d.threads[1].notes[0].author, "bob");
-  assert.equal(d.threads[1].notes[0].id, "gid://gitlab/Note/2");
+  assert.equal(d.threads[1].notes[0].id, "2");
   assert.equal(d.threads[2].resolved, true);
   assert.equal(d.threads[2].path, null);
   assert.equal(d.threads[2].line, null);
@@ -95,9 +96,9 @@ test("simple writes call the expected method, endpoint and fields", async () => 
     [(p) => p.approve(12), "POST", "projects/grp%2Fapp/merge_requests/12/approve", []],
     [(p) => p.unapprove(12), "POST", "projects/grp%2Fapp/merge_requests/12/unapprove", []],
     [(p) => p.comment(12, "hi"), "POST", "projects/grp%2Fapp/merge_requests/12/notes", ["body=hi"]],
-    [(p) => p.reply(12, "d2", "yo"), "POST", "projects/grp%2Fapp/merge_requests/12/discussions/d2/notes", ["body=yo"]],
-    [(p) => p.resolve(12, "d2", true), "PUT", "projects/grp%2Fapp/merge_requests/12/discussions/d2", ["resolved=true"]],
-    [(p) => p.resolve(12, "d2", false), "PUT", "projects/grp%2Fapp/merge_requests/12/discussions/d2", ["resolved=false"]],
+    [(p) => p.reply(12, D2, "yo"), "POST", `projects/grp%2Fapp/merge_requests/12/discussions/${D2}/notes`, ["body=yo"]],
+    [(p) => p.resolve(12, D2, true), "PUT", `projects/grp%2Fapp/merge_requests/12/discussions/${D2}`, ["resolved=true"]],
+    [(p) => p.resolve(12, D2, false), "PUT", `projects/grp%2Fapp/merge_requests/12/discussions/${D2}`, ["resolved=false"]],
     [(p) => p.update(12, { title: "T" }), "PUT", "projects/grp%2Fapp/merge_requests/12", ["title=T"]],
     [(p) => p.update(12, { title: "T", description: "D" }), "PUT", "projects/grp%2Fapp/merge_requests/12", ["title=T", "description=D"]],
     [(p) => p.close(12), "PUT", "projects/grp%2Fapp/merge_requests/12", ["state_event=close"]],
@@ -135,14 +136,14 @@ test("setReviewers resolves usernames to ids and replaces the list", async () =>
   const put = callOf(calls, 1);
   assert.equal(put.method, "PUT");
   assert.equal(put.endpoint, "projects/grp%2Fapp/merge_requests/12");
-  assert.deepEqual(put.fields, ["reviewer_ids[]=7"]);
+  assert.deepEqual(put.fields, ["reviewer_ids=[7]"]);
 });
 
 test("setAssignees with an empty list clears, unknown user fails", async () => {
   const { exec, calls } = recorder(() => ok(members));
   await gitlabProvider(exec, repo).setAssignees(12, []);
   assert.equal(calls.length, 1);
-  assert.deepEqual(callOf(calls).fields, ["assignee_ids=0"]);
+  assert.deepEqual(callOf(calls).fields, ["assignee_ids=[]"]);
   await assert.rejects(gitlabProvider(exec, repo).setAssignees(12, ["zed"]), /zed/);
 });
 
@@ -164,7 +165,7 @@ test("createMr posts branches and a Draft: title, then returns the MR", async ()
   const mr = await gitlabProvider(exec, repo).createMr({ source: "feat-12", target: "main", title: "Add widget", description: "D", draft: true, reviewers: ["bob"] });
   const post = calls.map((_, i) => callOf(calls, i)).find((c) => c.method === "POST");
   assert.equal(post.endpoint, "projects/grp%2Fapp/merge_requests");
-  assert.deepEqual(post.fields, ["source_branch=feat-12", "target_branch=main", "title=Draft: Add widget", "description=D", "reviewer_ids[]=7"]);
+  assert.deepEqual(post.fields, ["source_branch=feat-12", "target_branch=main", "title=Draft: Add widget", "description=D", "reviewer_ids=[7]"]);
   assert.equal(mr.number, 12);
 });
 

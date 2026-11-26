@@ -85,9 +85,10 @@ export function gitlabProvider(exec, { host, path }) {
   };
   const graphql = async (query) => (await rawGraphql(query)).project;
 
-  // Strings go as -f, numbers and booleans as -F (typed); an array repeats `-f key[]=v`.
+  // Strings go as -f, numbers and booleans as -F (typed). glab never parses bracketed field names
+  // in bodies, so an array is one typed field with a JSON value: -F ids=[7,8].
   const fieldArgs = (fields) => Object.entries(fields).flatMap(([k, v]) =>
-    Array.isArray(v) ? v.flatMap((x) => ["-f", `${k}[]=${x}`]) : typeof v === "string" ? ["-f", `${k}=${v}`] : ["-F", `${k}=${v}`]);
+    Array.isArray(v) ? ["-F", `${k}=${JSON.stringify(v)}`] : typeof v === "string" ? ["-f", `${k}=${v}`] : ["-F", `${k}=${v}`]);
   const rest = async (endpoint, { method = "POST", fields = {} } = {}) =>
     (await glabAuth(exec, host), cli(exec, "gitlab", host, ["api", "--hostname", host, "-X", method, endpoint, ...fieldArgs(fields)], { raw: true }));
 
@@ -112,8 +113,8 @@ export function gitlabProvider(exec, { host, path }) {
     }
     return ids;
   };
-  // An empty list clears: GitLab reads 0 as "unassign all".
-  const idFields = (key, ids) => (ids.length ? { [`${key}_ids`]: ids } : { [`${key}_ids`]: 0 });
+  // An empty list ([]) clears.
+  const idFields = (key, ids) => ({ [`${key}_ids`]: ids });
 
   const toMr = (m) => ({
     number: num(m.iid),
@@ -184,10 +185,10 @@ export function gitlabProvider(exec, { host, path }) {
         threads: (m.discussions?.nodes ?? []).map((d) => {
           const pos = (d.notes?.nodes ?? []).find((n) => n.position)?.position;
           return {
-            id: d.id,
+            id: lastId(d.id), // REST paths need the bare hex, not gid://gitlab/Discussion/<hex>
             resolvable: !!d.resolvable,
             resolved: !!d.resolved,
-            notes: (d.notes?.nodes ?? []).map((n) => ({ id: String(n.id), author: n.author?.username ?? "", body: n.body ?? "", createdAt: n.createdAt, system: !!n.system })),
+            notes: (d.notes?.nodes ?? []).map((n) => ({ id: lastId(n.id), author: n.author?.username ?? "", body: n.body ?? "", createdAt: n.createdAt, system: !!n.system })),
             path: pos ? (pos.newPath ?? pos.oldPath ?? null) : null,
             line: pos ? (num(pos.newLine) ?? num(pos.oldLine)) : null,
           };

@@ -9,10 +9,10 @@
 // RunDetail = { run: Run, groups: { name, jobs: Job[] }[], artifacts: Artifact[] }
 // MR = { number, title, author, source, target, draft, state: "open"|"merged"|"closed", url, updatedAt,
 //        pipeline: Status|null, pipelineRunId: string|null, approvals, approvalsRequired: number|null,
-//        approvedBy: string[], reviewers: string[], assignees: string[]   // usernames
+//        approvedBy: string[], reviewers: string[], assignees: string[],   // usernames
 //        unresolved: number, headSha }
 // Thread = { id, resolvable, resolved, path: string|null, line: number|null,
-//            notes: { id, author, body, createdAt, system: boolean }[] }   // ids are strings
+//            notes: { id, author, body, createdAt, system: boolean }[] }   // ids are bare strings (GitLab gid prefixes stripped)
 // MrDetail = { mr: MR, description, threads: Thread[], files: { path, add, del, status }[] }
 
 // Raw GitLab ("opened"/"merged"/"closed"/"locked") or GitHub ("OPEN"/"MERGED"/"CLOSED") state as MR.state.
