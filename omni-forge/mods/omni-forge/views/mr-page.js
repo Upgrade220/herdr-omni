@@ -164,7 +164,7 @@ export class MrPage {
     if (!body) return;
     this.act(cx, "mr-comment", "Comment", async () => {
       await this.owner.provider.comment(Number(this.number), body);
-      this.commentBox.set_value("");
+      if (this.commentBox.value().trim() === body) this.commentBox.set_value(""); // keep text typed meanwhile
     });
   }
 
@@ -174,7 +174,7 @@ export class MrPage {
     if (!body) return;
     this.act(cx, `mr-reply-${th.id}`, "Reply", async () => {
       await this.owner.provider.reply(Number(this.number), th.id, body);
-      box.set_value("");
+      if (box.value().trim() === body) box.set_value("");
     });
   }
 
@@ -184,11 +184,11 @@ export class MrPage {
   }
 
   startEdit(cx) {
-    if (!this.data) return;
+    if (!this.data || this.editing) return;
     this.editTitle.set_value(this.data.mr.title ?? "");
     this.editBody.set_value(this.data.description ?? "");
     this.editing = true;
-    this.people = null;
+    this.clearPeople();
     cx.notify();
   }
 
@@ -214,20 +214,32 @@ export class MrPage {
     const set = kind === "reviewers" ? (list) => p.setReviewers(n, list) : (list) => p.setAssignees(n, list);
     const label = kind === "reviewers" ? "Reviewers" : "Assignees";
     const picker = new PeoplePicker({ initial: this.data.mr[kind] ?? [], search: (q) => p.searchUsers(q), onSave: (list, cx2) => this.savePeople(cx2, label, set, list), onCancel: (cx2) => this.closePeople(cx2), placeholder: `Search ${kind}` });
+    this.people?.picker.dispose();
     this.people = { kind, picker, onSave: picker.onSave, onCancel: picker.onCancel };
     this.editing = false;
     cx.notify();
   }
 
-  closePeople(cx) {
+  // Drops the open picker (and its pending search).
+  clearPeople() {
+    this.people?.picker.dispose();
     this.people = null;
+  }
+
+  // The tab closed or the repo changed: nothing of this page may run any more.
+  dispose() {
+    this.clearPeople();
+  }
+
+  closePeople(cx) {
+    this.clearPeople();
     cx.notify();
   }
 
   savePeople(cx, label, set, list) {
     this.act(cx, "mr-people-save", label, async () => {
       await set(list);
-      this.people = null;
+      this.clearPeople();
     });
   }
 

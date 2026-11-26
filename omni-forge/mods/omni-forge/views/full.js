@@ -47,6 +47,7 @@ export class FullView extends RepoView {
     if (keepMrs) this.tabs.select("mrs");
     this.details.clear();
     this.logs.clear();
+    for (const page of this.mrPages.values()) page.dispose();
     this.mrPages.clear();
     this.mrList = new MrList(this); // the gen bump in resetList drops the old one's answer
   }
@@ -172,7 +173,7 @@ export class FullView extends RepoView {
   dropTab(tab) {
     if (tab.kind === "run") this.details.delete(tab.runId);
     if (tab.kind === "log") this.logs.delete(tab.id);
-    if (tab.kind === "mr") this.mrPages.delete(tab.number);
+    if (tab.kind === "mr") { this.mrPages.get(tab.number)?.dispose(); this.mrPages.delete(tab.number); }
   }
 
   back(cx) {

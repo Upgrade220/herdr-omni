@@ -22,6 +22,7 @@ function setup({ checking = false, given = {}, focus = focusOn("pf", "F"), share
     constructor(owner, number) { this.number = number; this.loading = false; env.pages.push(this); }
     load() { this.loaded = (this.loaded ?? 0) + 1; }
     render() { return null; }
+    dispose() { this.disposed = true; env.disposed = (env.disposed ?? 0) + 1; }
   }
   class LogView {
     initEmbedded(props) { this.props = props; env.logs.push(props.jobId); }

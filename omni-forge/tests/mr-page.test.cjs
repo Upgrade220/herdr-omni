@@ -320,3 +320,52 @@ test("picker: a blank query asks nothing; a stale answer is dropped; add/remove 
   picker.remove("ann", cx);
   assert.deepEqual(plain(picker.list), ["cat"]);
 });
+
+// ---- review fixes ----------------------------------------------------------------
+
+test("Cancel (and every other way the picker goes away) cancels its pending search", async () => {
+  const asked = [];
+  const { page, cx, env } = await ready({ detail: withMr({}), provider: { searchUsers: async (q) => { asked.push(q); return []; } } });
+  const timers = [];
+  cx.timer = { after: (ms, fn) => { const t = { fn, cancelled: false, cancel() { t.cancelled = true; } }; timers.push(t); return t; } };
+  click(page, "mr-reviewers", cx);
+  const first = page.people.picker;
+  first.input.type("bo", cx);
+  page.people.onCancel(cx);
+  assert.equal(timers[0].cancelled, true);
+  timers[0].fn(cx); // even a timer that still fires asks nothing
+  assert.deepEqual(asked, []);
+  click(page, "mr-reviewers", cx);
+  page.people.picker.input.type("x", cx);
+  click(page, "mr-assignees", cx); // replaces the picker
+  assert.equal(timers[1].cancelled, true);
+  page.people.picker.input.type("y", cx);
+  page.dispose(); // the tab closed
+  assert.equal(timers[2].cancelled, true);
+  assert.equal(page.people, null);
+  assert.deepEqual(asked, []);
+  assert.deepEqual(env.calls, []);
+});
+
+test("a comment or reply typed while the request is out is kept", async () => {
+  let release;
+  const { page, cx, settle } = await ready({ detail: withMr({}, [thread("d1")]), provider: { comment: () => new Promise((r) => { release = r; }), reply: () => new Promise((r) => { release = r; }) } });
+  page.commentBox.set_value("first");
+  page.submitComment(cx);
+  page.commentBox.set_value("first and more");
+  release(); await settle();
+  assert.equal(page.commentBox.value(), "first and more");
+  page.replyBoxes.get("d1").set_value("r1");
+  page.submitReply(cx, page.data.threads[0]);
+  page.replyBoxes.get("d1").set_value("r1 plus");
+  release(); await settle();
+  assert.equal(page.replyBoxes.get("d1").value(), "r1 plus");
+});
+
+test("Edit while editing keeps the unsaved edits", async () => {
+  const { page, cx } = await ready({ detail: withMr({}) });
+  click(page, "mr-edit", cx);
+  page.editTitle.set_value("Half typed");
+  click(page, "mr-edit", cx);
+  assert.equal(page.editTitle.value(), "Half typed");
+});

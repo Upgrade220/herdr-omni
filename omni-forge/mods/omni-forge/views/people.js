@@ -55,6 +55,13 @@ export class PeoplePicker {
     });
   }
 
+  // The picker is going away: no pending or in-flight search may touch it again.
+  dispose() {
+    this.seq++;
+    this.task?.cancel?.();
+    this.task = null;
+  }
+
   add(username, cx) {
     if (!this.list.includes(username)) this.list.push(username);
     this.matches = [];
