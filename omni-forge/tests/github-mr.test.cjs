@@ -171,13 +171,29 @@ test("setDraft looks up the node id then mutates", async () => {
   }
 });
 
-test("setReviewers adds and removes the difference", async () => {
-  const { exec, calls } = recorder((cmd, args) => (args.some((a) => a.endsWith("/requested_reviewers")) && !args.includes("-X") ? ok('{"users":[{"login":"bob"},{"login":"zed"}],"teams":[]}') : ok()));
-  await githubProvider(exec, repo).setReviewers(12, ["bob", "carol"]);
-  assert.equal(calls.length, 3);
-  assert.deepEqual(callOf(calls, 0), { method: "GET", endpoint: "repos/acme/app/pulls/12/requested_reviewers", fields: [] });
-  assert.deepEqual(callOf(calls, 1), { method: "POST", endpoint: "repos/acme/app/pulls/12/requested_reviewers", fields: ["reviewers[]=carol"] });
-  assert.deepEqual(callOf(calls, 2), { method: "DELETE", endpoint: "repos/acme/app/pulls/12/requested_reviewers", fields: ["reviewers[]=zed"] });
+const reviewerReply = (stdout) => (cmd, args) => {
+  if (args.includes("graphql")) return ok('{"data":{"repository":{"pullRequest":{"author":{"login":"alice"},"latestReviews":{"nodes":[{"author":{"login":"carol"}},{"author":{"login":"alice"}}]}}}}}');
+  if (args.some((a) => a.endsWith("/requested_reviewers")) && !args.includes("-X")) return ok('{"users":[{"login":"bob"},{"login":"zed"}],"teams":[]}');
+  return ok();
+};
+const writesOf = (calls) => calls.map((_, i) => callOf(calls, i)).filter((c) => c.method !== "GET" && c.endpoint);
+
+test("setReviewers: a kept reviewer who already reviewed is not re-requested", async () => {
+  const { exec, calls } = recorder(reviewerReply());
+  await githubProvider(exec, repo).setReviewers(12, ["bob", "zed", "carol"]);
+  assert.deepEqual(writesOf(calls), []);
+});
+
+test("setReviewers: a new login is POSTed", async () => {
+  const { exec, calls } = recorder(reviewerReply());
+  await githubProvider(exec, repo).setReviewers(12, ["bob", "zed", "carol", "dave"]);
+  assert.deepEqual(writesOf(calls), [{ method: "POST", endpoint: "repos/acme/app/pulls/12/requested_reviewers", fields: ["reviewers[]=dave"] }]);
+});
+
+test("setReviewers: removing a requested reviewer DELETEs it; removing a reviewed one does nothing", async () => {
+  const { exec, calls } = recorder(reviewerReply());
+  await githubProvider(exec, repo).setReviewers(12, ["bob"]);
+  assert.deepEqual(writesOf(calls), [{ method: "DELETE", endpoint: "repos/acme/app/pulls/12/requested_reviewers", fields: ["reviewers[]=zed"] }]);
 });
 
 test("setAssignees adds and removes the difference", async () => {
@@ -216,5 +232,16 @@ test("createMr posts head/base/title/draft, requests reviewers, returns the MR",
   assert.deepEqual(post.fields, ["head=feat-12", "base=main", "title=Add widget", "body=D", "draft=true"]);
   const rv = all.find((c) => c.endpoint === "repos/acme/app/pulls/12/requested_reviewers");
   assert.deepEqual(rv.fields, ["reviewers[]=bob"]);
+  assert.equal(mr.number, 12);
+});
+
+test("createMr survives a failed reviewers request", async () => {
+  const { exec } = recorder((cmd, args) => {
+    if (args.includes("graphql")) return ok(fixture("github-pr-detail.json"));
+    if (args.some((a) => a.endsWith("/requested_reviewers"))) return { code: 1, stdout: "", stderr: "HTTP 422" };
+    if (args.includes("repos/acme/app/pulls") && args.includes("POST")) return ok('{"number":12}');
+    return detailReply(cmd, args);
+  });
+  const mr = await githubProvider(exec, repo).createMr({ source: "feat-12", target: "main", title: "T", description: "", draft: false, reviewers: ["nobody"] });
   assert.equal(mr.number, 12);
 });

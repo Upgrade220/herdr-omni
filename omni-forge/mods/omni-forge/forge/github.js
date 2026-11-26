@@ -199,8 +199,17 @@ export function githubProvider(exec, { host, path }) {
     },
     async setReviewers(n, usernames) {
       const endpoint = `${prBase(n)}/requested_reviewers`;
-      const have = ((await get(endpoint)).users ?? []).map((u) => u.login);
-      await syncLogins(endpoint, "reviewers", have, usernames);
+      const requested = ((await get(endpoint)).users ?? []).map((u) => u.login);
+      const pr = (await graphql(`query($owner: String!, $name: String!){ repository(owner: $owner, name: $name){ pullRequest(number: ${Number(n)}){ author{login} latestReviews(first: 30){nodes{author{login}}} } } }`))?.repository?.pullRequest;
+      if (!pr) throw notFound(n);
+      // mr.reviewers shows requested plus already-reviewed logins, so the wanted list may hold both.
+      const reviewed = nodes(pr.latestReviews).map((r) => r.author?.login).filter((l) => l && l !== pr.author?.login);
+      const add = usernames.filter((u) => !requested.includes(u) && !reviewed.includes(u));
+      // Only a pending request can be withdrawn; GitHub cannot un-review, so a removed login that
+      // already reviewed (and is not requested again) is left alone.
+      const del = requested.filter((u) => !usernames.includes(u));
+      if (add.length) await rest(endpoint, { fields: { reviewers: add } });
+      if (del.length) await rest(endpoint, { method: "DELETE", fields: { reviewers: del } });
     },
     async setAssignees(n, usernames) {
       const have = ((await get(`${repoBase}/issues/${n}`)).assignees ?? []).map((u) => u.login);
@@ -213,7 +222,8 @@ export function githubProvider(exec, { host, path }) {
       const fields = { head: source, base: target, title, body: description ?? "" };
       if (draft) fields.draft = true;
       const made = JSON.parse(await rest(`${repoBase}/pulls`, { fields }));
-      if (reviewers.length) await rest(`${prBase(made.number)}/requested_reviewers`, { fields: { reviewers } });
+      // The PR exists now: a failed reviewer request must not fail the call, or a retry would hit a duplicate PR.
+      if (reviewers.length) await rest(`${prBase(made.number)}/requested_reviewers`, { fields: { reviewers } }).catch(() => {});
       return (await this.mrDetail(made.number)).mr;
     },
 
