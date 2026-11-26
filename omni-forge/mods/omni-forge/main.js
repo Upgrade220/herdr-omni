@@ -1,5 +1,5 @@
 // omni-forge: CI for the current space's GitHub or GitLab project. A layout puts one copy per
-// block, and `view` in its props picks which part: side (the default), full, log, or send (a dialog).
+// block, and `view` in its props picks which part: side (the default), mrs (the MR side list), full, log, or send (a dialog).
 import { View } from "gpui-kit";
 import { props } from "herdr";
 import { LogView } from "./views/log.js";

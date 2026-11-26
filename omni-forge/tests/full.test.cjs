@@ -306,3 +306,21 @@ test("the MRs list polls only while the MRs tab is selected and visible", async 
   view.tick(cx);
   assert.equal(loads, 1);
 });
+
+test("props.open mrs survives the first repo detection", async () => {
+  const { view, cx, settle } = setup({ given: { view: "full", open: "mrs" }, shared: { "omni-forge.last-loc": { cwd: "/w/repo-b", machine: null, branch: "dev" } } });
+  view.tick(cx);
+  await settle();
+  assert.equal(view.repo.path, "o/repo-b");
+  assert.equal(view.tabs.selected, "mrs");
+});
+
+test("Refresh on an MR item tab does nothing and shows no spinner", async () => {
+  const { view, cx } = opened();
+  view.openMr("5", cx);
+  let loads = 0;
+  view.loadList = () => { loads++; };
+  view.mrList.load = () => { loads++; };
+  view.refresh(cx);
+  assert.equal(loads, 0);
+});

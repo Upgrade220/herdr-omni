@@ -40,7 +40,9 @@ export class FullView extends RepoView {
 
   // Run and log tabs belong to the repo they were opened in.
   repoChanged() {
+    const keepMrs = this.tabs.selected === "mrs"; // a fixed tab survives a repo change
     this.tabs.reset();
+    if (keepMrs) this.tabs.select("mrs");
     this.details.clear();
     this.logs.clear();
     this.mrList = new MrList(this); // the gen bump in resetList drops the old one's answer
@@ -169,6 +171,7 @@ export class FullView extends RepoView {
     const log = this.selectedLog();
     if (log) log.refresh(cx);
     else if (this.tabs.selected === "mrs") this.mrList.load(cx);
+    else if (this.tabs.find(this.tabs.selected)?.kind === "mr") return; // the MR page comes later
     else if (this.detail) this.detail.load(cx);
     else this.loadList(cx);
   }
@@ -180,7 +183,7 @@ export class FullView extends RepoView {
     const log = this.selectedLog();
     const mrTab = this.tabs.find(this.tabs.selected)?.kind;
     const inMrs = mrTab === "mrs" || mrTab === "mr";
-    const loading = log ? log.busy : mrTab === "mrs" ? this.mrList.busy : this.detail ? this.detail.loading : this.listBusy || this.detecting;
+    const loading = log ? log.busy : mrTab === "mrs" ? this.mrList.busy : mrTab === "mr" ? false : this.detail ? this.detail.loading : this.listBusy || this.detecting;
     const header = h_flex().h(44).flex_none().px(14).gap(10).items_center().border_b_1().border_color(t.border)
       .child(div().flex_none().font_semibold().child(inMrs ? "MRs" : "CI"))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(this.repo?.path ?? ""))
