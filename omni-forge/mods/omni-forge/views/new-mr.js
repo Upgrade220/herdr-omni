@@ -83,7 +83,9 @@ export class NewMrView {
   async readUpstream() {
     try {
       const r = await this.git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
-      this.upstream = r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
+      const up = r.code === 0 ? r.stdout.trim() : "";
+      // "<remote>/<branch>": tracking another branch (checkout -b feat origin/main) is not published.
+      this.upstream = up && up.slice(up.indexOf("/") + 1) === this.branch ? up : null;
     } catch {
       this.upstream = null;
     }
@@ -93,8 +95,10 @@ export class NewMrView {
     cx.spawn(async (cx) => {
       try {
         const head = await this.git(["rev-parse", "--abbrev-ref", "HEAD"]);
-        const name = head.code === 0 ? head.stdout.trim() : "";
-        if (!name || name === "HEAD") {
+        const name = head.stdout.trim();
+        if (head.code !== 0) {
+          throw new Error(head.stderr.trim() || `git rev-parse exited with ${head.code}`);
+        } else if (!name || name === "HEAD") {
           this.detached = true;
         } else {
           this.branch = name;
@@ -136,7 +140,7 @@ export class NewMrView {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const r = await this.git(["push", "--set-upstream", this.remote, this.branch]);
+        const r = await this.git(["push", "--set-upstream", "--", this.remote, this.branch]);
         if (r.code !== 0) throw new Error(r.stderr.trim() || `git push exited with ${r.code}`);
         await this.readUpstream();
       } catch (e) {

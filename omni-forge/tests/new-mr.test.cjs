@@ -77,6 +77,7 @@ test("prefill: source, upstream, title from the last commit, target from default
     assert.deepEqual(e.opts, { cwd: "/w/app", on: "m1" });
   }
   assert.equal(view.canCreate(), true);
+  assert.equal(env.execs.some((e) => e.args[0] === "push"), false); // loading never pushes
 });
 
 test("Create is disabled while the title is blank, with no upstream, busy, or detached", async () => {
@@ -108,7 +109,7 @@ test("push runs git push --set-upstream with origin preferred, then re-reads the
   view.push(cx);
   await settle();
   const push = env.execs.find((e) => e.args[0] === "push");
-  assert.deepEqual(push.args, ["push", "--set-upstream", "origin", "feature/x"]);
+  assert.deepEqual(push.args, ["push", "--set-upstream", "--", "origin", "feature/x"]);
   assert.deepEqual(push.opts, { cwd: "/w/app", on: "m1" });
   assert.equal(view.upstream, "up/feature/x");
   assert.equal(view.canCreate(), true);
@@ -119,7 +120,7 @@ test("push falls back to the first remote when there is no origin; a failed push
   await settle();
   view.push(cx);
   await settle();
-  assert.deepEqual(env.execs.find((e) => e.args[0] === "push").args, ["push", "--set-upstream", "up", "feature/x"]);
+  assert.deepEqual(env.execs.find((e) => e.args[0] === "push").args, ["push", "--set-upstream", "--", "up", "feature/x"]);
   assert.match(view.error, /rejected/);
   assert.equal(view.canCreate(), false);
   assert.deepEqual(env.closed, []);
@@ -189,4 +190,32 @@ test("closing disposes the reviewer picker and closes the overlay", async () => 
 test("during check nothing is read", () => {
   const { env } = setup({ checking: true });
   assert.deepEqual(env.execs, []);
+});
+
+test("an upstream of another branch (checkout -b feat origin/main) counts as unpublished", async () => {
+  const a = setup({ git: { upstream: ok("origin/main\n") } });
+  await a.settle();
+  assert.equal(a.view.upstream, null);
+  assert.equal(a.view.canCreate(), false);
+  // a branch with a slash keeps its own name after the remote
+  const b = setup({ git: { upstream: ok("origin/feature/x\n") } });
+  await b.settle();
+  assert.equal(b.view.upstream, "origin/feature/x");
+  assert.equal(b.view.canCreate(), true);
+});
+
+test("a branch named like an option cannot become a push flag", async () => {
+  const { view, env, cx, settle } = setup({ git: { branch: ok("-n\n"), upstream: fail() } });
+  await settle();
+  view.push(cx);
+  await settle();
+  assert.deepEqual(env.execs.find((e) => e.args[0] === "push").args, ["push", "--set-upstream", "--", "origin", "-n"]);
+});
+
+test("a failed rev-parse HEAD shows its error, not Detached HEAD", async () => {
+  const { view, settle } = setup({ git: { branch: fail("fatal: not a git repository") } });
+  await settle();
+  assert.equal(view.detached, false);
+  assert.match(view.error, /not a git repository/);
+  assert.equal(view.canCreate(), false);
 });
