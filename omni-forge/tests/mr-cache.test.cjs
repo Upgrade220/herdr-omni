@@ -128,3 +128,56 @@ test("pruneStale deletes old caches and keeps fresh ones", async () => {
   assert.equal(fs.existsSync(f.dir), false);
   assert.equal(fs.existsSync(fresh), true);
 });
+
+async function corruptCache(f, dir) {
+  const other = path.join(f.root, "other");
+  if (!fs.existsSync(other)) {
+    git(f.root, "clone", "-q", f.remote, other);
+    fs.writeFileSync(path.join(other, "c.txt"), "c\n");
+    git(other, "add", "."); git(other, "commit", "-qm", "mr4");
+    git(other, "push", "-q", "origin", "HEAD:refs/merge-requests/4/head");
+  }
+  const { exec, calls } = adapter();
+  const o = { ...opts(f), number: 4, dir };
+  assert.equal((await fetchMr(exec, o)).ok, true);
+  const objDir = path.join(dir, "objects");
+  for (const d of fs.readdirSync(objDir).filter((n) => /^[0-9a-f]{2}$/.test(n))) {
+    for (const n of fs.readdirSync(path.join(objDir, d))) { const p = path.join(objDir, d, n); fs.chmodSync(p, 0o644); fs.writeFileSync(p, "garbage"); }
+  }
+  calls.length = 0;
+  return { exec, calls, o };
+}
+
+test("a transport failure keeps a good cache and fetches once", async () => {
+  const f = fixture();
+  const { exec, calls } = adapter();
+  assert.equal((await fetchMr(exec, opts(f))).ok, true);
+  calls.length = 0;
+  const res = await ensureMr(exec, { ...opts(f), url: path.join(f.root, "nope.git") });
+  assert.equal(res.ok, false);
+  assert.equal(calls.filter((c) => c.args.includes("fetch")).length, 1);
+  assert.equal(fs.existsSync(f.dir), true);
+  assert.equal((await diffOk(exec, { dir: f.dir, refs: MR_REFS(3) })).ok, true);
+});
+
+test("ensureMr never deletes a dir that fails the safety guard", async () => {
+  const f = fixture();
+  for (const dir of [path.join(f.root, "other-cache", "app.git"), path.join(f.root, "mr-cache", "app")]) {
+    const { exec, o } = await corruptCache(f, dir);
+    const res = await ensureMr(exec, o);
+    assert.equal(res.ok, false);
+    assert.equal(fs.existsSync(dir), true);
+  }
+});
+
+test("pruneStale never deletes a stale dir that is not a .git cache", async () => {
+  const f = fixture();
+  const { exec } = adapter();
+  const root = path.join(f.root, "mr-cache");
+  const dir = path.join(root, "git.example.org", "grp", "plain");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "omni-forge-used"), "");
+  execFileSync("touch", ["-t", "200001010000", path.join(dir, "omni-forge-used")]);
+  await pruneStale(exec, { root, days: 14 });
+  assert.equal(fs.existsSync(dir), true);
+});

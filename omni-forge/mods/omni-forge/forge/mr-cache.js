@@ -2,7 +2,10 @@
 // (objects/info/alternates) and holds the MR head and target tip under refs/omni-forge/mr/<n>/.
 // The user's repo is only read. `exec` is passed in (herdr's exec), so this file does not import herdr.
 
-const BROKEN = /bad object|missing|could not read|unable to read|corrupt|inflate/i;
+// Wipe only for damaged objects, never for transport/auth failures.
+const TRANSPORT = /remote repository|Username|Password|resolve host|Permission denied|Authentication failed|Connection|timed out|unable to access/i;
+const OBJECTS = /bad object|missing (?:blob|tree|commit|object)|inflate|corrupt|unable to read [0-9a-f]{7,}/i;
+const damaged = (error) => !TRANSPORT.test(error) && OBJECTS.test(error);
 
 export function cacheDir({ local, appHome, home, host, path }) {
   const base = local ? `${appHome}/data/omni-forge` : `${home}/.cache/omni-forge`;
@@ -60,7 +63,9 @@ export async function ensureMr(exec, opts) {
   const first = await fetchMr(exec, opts);
   const check = first.ok ? await diffOk(exec, { on: opts.on, dir: opts.dir, refs: first.refs }) : first;
   if (check.ok) return first;
-  if (!BROKEN.test(check.error) || !safeDir(opts.dir)) return { ok: false, error: check.error };
+  // A failed diffOk means the cache is unusable; a failed fetch wipes only when it names damaged objects.
+  const wipe = first.ok || damaged(check.error);
+  if (!wipe || !safeDir(opts.dir)) return { ok: false, error: check.error };
   await run(exec, "rm", ["-rf", opts.dir], { on: opts.on });
   const second = await fetchMr(exec, opts);
   if (!second.ok) return second;
