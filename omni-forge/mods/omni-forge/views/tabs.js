@@ -4,6 +4,8 @@
 export const MAX_TABS = 8;
 
 const RUNS = { id: "runs", kind: "runs", label: "Runs" };
+const MRS = { id: "mrs", kind: "mrs", label: "MRs" };
+const FIXED = new Set([RUNS.id, MRS.id]);
 
 const runLabel = ({ id, title, number }) => (number != null ? `#${number} ${title ?? ""}`.trim() : title || `Run ${id}`);
 
@@ -14,7 +16,7 @@ export class Tabs {
   }
 
   reset() {
-    this.list = [{ ...RUNS }];
+    this.list = [{ ...RUNS }, { ...MRS }];
     this.selected = RUNS.id;
     this.history = [RUNS.id]; // selection order, most recent last
   }
@@ -41,6 +43,10 @@ export class Tabs {
     if (status) tab.status = status;
   }
 
+  openMr({ number, title }) {
+    return this.open({ id: `mr:${number}`, kind: "mr", label: `#${number} ${title ?? ""}`.trim(), number: String(number) });
+  }
+
   openLog({ runId, jobId, name, status }) {
     return this.open({ id: `log:${runId}:${jobId}`, kind: "log", label: name || `Job ${jobId}`, runId: String(runId), jobId: String(jobId), status });
   }
@@ -58,7 +64,7 @@ export class Tabs {
     return existing;
   }
 
-  // Over the limit, close the least recently selected tab other than Runs and `keep`.
+  // Over the limit, close the least recently selected tab other than the fixed ones and `keep`.
   evict(keep) {
     while (this.list.length > MAX_TABS) {
       const rank = (t) => {
@@ -66,7 +72,7 @@ export class Tabs {
         return i < 0 ? -1 : i; // never selected counts as oldest
       };
       const victim = this.list
-        .filter((t) => t.id !== RUNS.id && t.id !== keep)
+        .filter((t) => !FIXED.has(t.id) && t.id !== keep)
         .sort((a, b) => rank(a) - rank(b))[0];
       if (!victim) return;
       this.remove(victim.id);
@@ -75,7 +81,7 @@ export class Tabs {
   }
 
   close(id) {
-    if (id === RUNS.id) return null;
+    if (FIXED.has(id)) return null;
     const tab = this.find(id);
     if (!tab) return null;
     this.remove(id);

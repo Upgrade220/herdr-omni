@@ -6,7 +6,7 @@ import { v_flex, h_flex, InputState } from "gpui-base";
 import { nextDelay } from "../ci/poller.js";
 import { ago } from "./runs.js";
 import { MR_CHIPS, mrCounts, filterMrs, mrNumber } from "./mrs.js";
-import { statusPill, pill, filterChip, searchBox, button, busyState, message, errorState } from "./ui.js";
+import { statusPill, pill, filterChip, searchBox, busyState, message, errorState } from "./ui.js";
 
 export class MrList {
   constructor(owner) {
@@ -78,15 +78,12 @@ export class MrList {
       .child(h_flex().flex_wrap().gap(4).items_center()
         .children(MR_CHIPS.map((c) => filterChip(t, `${ids}-chip-${c.id}`, c.label, counts[c.id], this.chip === c.id, (cx) => this.setChip(c.id, cx)))));
     const rows = v_flex().flex_1().min_h(0).overflow_y_scroll()
-      .children(shown.map((m) => this.row(t, m, { compact, onOpen, ids, kind })));
-    const empty = shown.length
-      ? null
-      : message(t, typed ? "No MR matches the filter" : this.chip === "review" ? "Nothing to review" : "No open MRs");
+      .children(shown.map((m) => this.row(t, m, { compact, onOpen, ids, kind })))
+      .when(!shown.length, (e) => e.child(message(t, typed ? "No MR matches the filter" : this.chip === "review" ? "Nothing to review" : "No open MRs")));
     return v_flex().flex_1().min_h(0).w_full()
       .child(controls)
       .when(Boolean(this.error), (e) => e.child(errorState(t, `${ids}-retry`, this.error, (cx) => this.load(cx))))
-      .child(rows)
-      .when(Boolean(empty), (e) => e.child(empty));
+      .child(rows);
   }
 
   row(t, m, { compact, onOpen, ids, kind }) {
@@ -103,7 +100,7 @@ export class MrList {
       .child(div().flex_1().min_w(0).truncate().text_size(13).child(m.title))
       .child(div().flex_none().text_size(11).text_color(t.dim).child(mrNumber(kind, m.number)));
     const base = v_flex().id(`${ids}-row-${m.number}`).w_full().flex_none().px(12).py(compact ? 6 : 8).gap(4)
-      .cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => onOpen?.(m));
+      .cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => onOpen?.(m, cx));
     if (compact) {
       return base.child(head)
         .child(h_flex().gap(6).items_center().overflow_hidden()

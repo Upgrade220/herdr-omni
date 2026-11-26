@@ -6,9 +6,9 @@ const { Tabs, MAX_TABS } = load(["views/tabs.js"]);
 
 const ids = (tabs) => JSON.parse(JSON.stringify(tabs.list.map((t) => t.id))); // vm arrays are another realm
 
-test("a new Tabs has only Runs, selected", () => {
+test("a new Tabs has Runs and MRs, Runs selected", () => {
   const tabs = new Tabs();
-  assert.deepEqual(ids(tabs), ["runs"]);
+  assert.deepEqual(ids(tabs), ["runs", "mrs"]);
   assert.equal(tabs.selected, "runs");
   assert.equal(MAX_TABS, 8);
 });
@@ -18,7 +18,7 @@ test("opening the same run twice keeps one tab and selects it", () => {
   tabs.openRun({ id: "5", title: "Fix totals", number: 12, status: "running" });
   tabs.select("runs");
   const tab = tabs.openRun({ id: "5", title: "Fix totals", number: 12, status: "failed" });
-  assert.deepEqual(ids(tabs), ["runs", "run:5"]);
+  assert.deepEqual(ids(tabs), ["runs", "mrs", "run:5"]);
   assert.equal(tabs.selected, "run:5");
   assert.equal(tab.kind, "run");
   assert.equal(tab.runId, "5");
@@ -32,13 +32,13 @@ test("a log tab is keyed by run and job", () => {
   assert.equal(tab.label, "Build");
   assert.equal(tabs.selected, "log:5:77");
   tabs.openLog({ runId: "5", jobId: "77", name: "Build" });
-  assert.deepEqual(ids(tabs), ["runs", "log:5:77"]);
+  assert.deepEqual(ids(tabs), ["runs", "mrs", "log:5:77"]);
 });
 
 test("Runs can't be closed", () => {
   const tabs = new Tabs();
   assert.equal(tabs.close("runs"), null);
-  assert.deepEqual(ids(tabs), ["runs"]);
+  assert.deepEqual(ids(tabs), ["runs", "mrs"]);
 });
 
 test("closing the selected tab selects the one selected before it", () => {
@@ -79,12 +79,12 @@ test("a ninth tab evicts the least recently selected one, never Runs or the new 
   assert.deepEqual(evicted, ["run:2"]);
 });
 
-test("reset leaves only Runs, selected", () => {
+test("reset leaves Runs and MRs, Runs selected", () => {
   const tabs = new Tabs();
   tabs.openRun({ id: "1", title: "a", number: 1 });
   tabs.openLog({ runId: "1", jobId: "2", name: "b" });
   tabs.reset();
-  assert.deepEqual(ids(tabs), ["runs"]);
+  assert.deepEqual(ids(tabs), ["runs", "mrs"]);
   assert.equal(tabs.selected, "runs");
 });
 
@@ -92,6 +92,34 @@ test("setStatus updates a tab's status", () => {
   const tabs = new Tabs();
   tabs.openRun({ id: "1", title: "a", number: 1, status: "running" });
   tabs.setStatus("run:1", "success");
-  assert.equal(tabs.list[1].status, "success");
+  assert.equal(tabs.list[2].status, "success");
   tabs.setStatus("nope", "failed"); // unknown ids are ignored
+});
+
+test("MRs can't be closed", () => {
+  const tabs = new Tabs();
+  assert.equal(tabs.close("mrs"), null);
+  assert.deepEqual(ids(tabs), ["runs", "mrs"]);
+});
+
+test("openMr opens an item tab after the fixed ones; twice selects the same tab", () => {
+  const tabs = new Tabs();
+  const tab = tabs.openMr({ number: 7, title: "Fix totals" });
+  assert.deepEqual(ids(tabs), ["runs", "mrs", "mr:7"]);
+  assert.equal(tab.kind, "mr");
+  assert.equal(tab.number, "7");
+  tabs.select("runs");
+  tabs.openMr({ number: 7, title: "Fix totals" });
+  assert.deepEqual(ids(tabs), ["runs", "mrs", "mr:7"]);
+  assert.equal(tabs.selected, "mr:7");
+});
+
+test("eviction never takes Runs or MRs, and MR tabs share the limit", () => {
+  const tabs = new Tabs();
+  const evicted = [];
+  tabs.onEvict = (tab) => evicted.push(tab.id);
+  for (let i = 1; i <= 7; i++) tabs.openMr({ number: i, title: `m${i}` });
+  assert.equal(tabs.list.length, MAX_TABS);
+  assert.deepEqual(evicted, ["mr:1"]);
+  assert.ok(ids(tabs).includes("runs") && ids(tabs).includes("mrs"));
 });

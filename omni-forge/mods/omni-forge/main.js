@@ -5,9 +5,10 @@ import { props } from "herdr";
 import { LogView } from "./views/log.js";
 import { FullView } from "./views/full.js";
 import { SideView } from "./views/side.js";
+import { MrSideView } from "./views/mr-side.js";
 import { SendView } from "./views/send.js";
 
-const PARTS = { side: SideView, full: FullView, log: LogView, send: SendView };
+const PARTS = { side: SideView, mrs: MrSideView, full: FullView, log: LogView, send: SendView };
 
 export default class OmniForge extends View {
   init(given, cx) {

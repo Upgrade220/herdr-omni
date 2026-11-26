@@ -23,7 +23,7 @@ function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect, pa
     tick() { env.logTicks.push(this.props.jobId); }
     refresh() { env.logRefreshes.push(this.props.jobId); }
   }
-  const { FullView } = load(["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/locate.js", "views/ui.js", "views/repo.js", "views/tabs.js", "views/full.js"], {
+  const { FullView } = load(["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/locate.js", "views/mrs.js", "views/ui.js", "views/mr-list.js", "views/repo.js", "views/tabs.js", "views/full.js"], {
     InputState: { new: () => ({ on() {}, value: () => "", set_value() {} }) },
     exec: () => {},
     focused: () => env.focus,
@@ -205,7 +205,7 @@ test("Log opens a log tab inside the view, and opening it again reuses the tab",
   view.openLog("12", job, cx);
   assert.equal(view.tabs.selected, `log:12:${job.id}`);
   assert.deepEqual(env.logs, [job.id]); // no second LogView
-  assert.equal(view.tabs.list.length, 3); // Runs, run:12, the log
+  assert.equal(view.tabs.list.length, 4); // Runs, MRs, run:12, the log
 });
 
 test("only the selected log tab polls; closing it drops its LogView", () => {
@@ -243,7 +243,7 @@ test("a repo change closes run and log tabs", async () => {
   env.shared["omni-forge.open"] = { tab: "F", key: '["github","github.com","o/other","9"]' };
   view.tick(cx);
   await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(view.tabs.list.map((t) => t.id))), ["runs", "run:9"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(view.tabs.list.map((t) => t.id))), ["runs", "mrs", "run:9"]);
   assert.equal(view.logs.size, 0);
   assert.deepEqual([...view.details.keys()], ["9"]);
 });
@@ -256,4 +256,53 @@ test("shared open with key runs selects the Runs tab", () => {
   assert.equal(view.tabs.selected, "runs");
   assert.equal(env.shared["omni-forge.open"], null);
   assert.ok(view.details.has("12")); // the run tab stays open
+});
+
+test("shared open with key mrs selects the MRs tab", () => {
+  const { view, env, cx } = opened();
+  env.shared["omni-forge.open"] = { tab: "F", key: "mrs" };
+  view.tick(cx);
+  assert.equal(view.tabs.selected, "mrs");
+  assert.equal(env.shared["omni-forge.open"], null);
+});
+
+test("shared open with an MR key opens that MR tab", () => {
+  const { view, env, cx } = opened();
+  env.shared["omni-forge.open"] = { tab: "F", key: JSON.stringify({ kind: "github", host: "github.com", path: "o/repo-a", mr: 5 }) };
+  view.tick(cx);
+  assert.equal(view.tabs.selected, "mr:5");
+  assert.equal(view.tabs.find("mr:5").kind, "mr");
+});
+
+test("props.open mrs starts on the MRs tab; an MR key for another repo switches repo", () => {
+  const a = setup({ given: { view: "full", open: "mrs" } });
+  assert.equal(a.view.tabs.selected, "mrs");
+  const b = setup({ given: { view: "full", open: JSON.stringify({ kind: "gitlab", host: "gl.test", path: "g/p", mr: 3 }) } });
+  assert.deepEqual({ ...b.view.repo }, { kind: "gitlab", host: "gl.test", path: "g/p" });
+  assert.equal(b.view.tabs.selected, "mr:3");
+});
+
+test("a repo change drops MR tabs and resets the MRs list", async () => {
+  const { view, env, cx, settle } = opened();
+  view.openMr("5", cx);
+  const old = view.mrList;
+  env.shared["omni-forge.open"] = { tab: "F", key: '["github","github.com","o/other","9"]' };
+  view.tick(cx);
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(view.tabs.list.map((t) => t.id))), ["runs", "mrs", "run:9"]);
+  assert.notEqual(view.mrList, old);
+});
+
+test("the MRs list polls only while the MRs tab is selected and visible", async () => {
+  const { view, env, cx, settle } = opened();
+  let loads = 0;
+  view.mrList.load = () => { loads++; };
+  view.tick(cx);
+  assert.equal(loads, 0); // a run tab is selected
+  view.selectTab("mrs", cx);
+  view.tick(cx);
+  assert.equal(loads, 1);
+  env.focus = focusOn("pa", "A"); // another tab: not visible
+  view.tick(cx);
+  assert.equal(loads, 1);
 });

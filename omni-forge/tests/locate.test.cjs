@@ -175,3 +175,25 @@ test("withModIcon adds omni-forge's icon once and keeps the others", () => {
   assert.equal(withModIcon(added), null); // already there: nothing to write
   assert.equal(withModIcon(undefined)["omni-forge"], "mods/omni-forge/icons/ci.svg");
 });
+
+test("mrKey and parseOpen round-trip; the array form is unchanged", () => {
+  const { mrKey, parseOpen, MRS_KEY } = load(["views/locate.js"]);
+  const key = mrKey({ kind: "gitlab", host: "git.example.org", path: "group/app", url: "x" }, 12);
+  assert.equal(key, '{"kind":"gitlab","host":"git.example.org","path":"group/app","mr":12}');
+  assert.deepEqual({ ...parseOpen(key) }, { kind: "gitlab", host: "git.example.org", path: "group/app", mr: "12" });
+  assert.deepEqual({ ...parseOpen('["gitlab","h","p","3"]') }, { kind: "gitlab", host: "h", path: "p", runId: "3" });
+  assert.equal(parseOpen('{"kind":"gitlab","host":"h","path":"p"}'), null);
+  assert.equal(MRS_KEY, "mrs");
+});
+
+test("sideVisible and sidePanelId take the view name", () => {
+  const { sideVisible, sidePanelId } = load(["views/locate.js"]);
+  const t = { id: "root", type: "row", children: [
+    { id: "main", type: "block", content: { tab: "active" } },
+    { id: "panel", type: "stack", children: [{ id: "mrs", type: "block", content: { mod: "omni-forge", props: { view: "mrs" } } }] },
+  ] };
+  assert.equal(sideVisible(t, "mrs"), true);
+  assert.equal(sideVisible(t), false);
+  assert.equal(sidePanelId(t, "mrs"), "panel");
+  assert.equal(sidePanelId(t), null);
+});

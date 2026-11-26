@@ -11,10 +11,14 @@ export const LAST_LOC = "omni-forge.last-loc";
 // full copy takes it in its tick (mayTakeOpen).
 export const OPEN = "omni-forge.open";
 
-// props.open is a watch key: JSON [kind, host, path, runId].
+// props.open is a watch key, JSON [kind, host, path, runId], or an MR key (mrKey) with mr: n.
 export function parseOpen(value) {
   try {
-    const [kind, host, path, runId] = JSON.parse(value);
+    const v = JSON.parse(value);
+    if (v && !Array.isArray(v) && typeof v === "object") {
+      return v.kind && v.host && v.path && v.mr != null ? { kind: v.kind, host: v.host, path: v.path, mr: String(v.mr) } : null;
+    }
+    const [kind, host, path, runId] = v;
     return kind && host && path && runId != null ? { kind, host, path, runId: String(runId) } : null;
   } catch {
     return null;
@@ -106,8 +110,8 @@ export function lastLocUpdate(current, snap) {
 // Whether the layout shows an omni-forge side block (content.mod omni-forge, props.view "side" or
 // unset): neither it nor an ancestor is `hidden`, and every stack on the way has it on its active
 // child (`active`, else the first child). `tree` is layout().
-export function sideVisible(tree) {
-  const isSide = (n) => n?.type === "block" && n.content?.mod === MOD && (n.content.props?.view ?? "side") === "side";
+export function sideVisible(tree, view = "side") {
+  const isSide = (n) => n?.type === "block" && n.content?.mod === MOD && (n.content.props?.view ?? "side") === view;
   const walk = (node) => {
     if (!node || node.hidden) return false;
     if (isSide(node)) return true;
@@ -133,8 +137,8 @@ export function mayTakeOpen(asked, { focused, panes, ownTab }) {
 
 // The id to hide to close the side view's panel: the side block's nearest ancestor (or the block
 // itself) whose parent is a row, e.g. the right `panel` column holding a `panel-body` stack.
-export function sidePanelId(tree) {
-  const isSide = (n) => n?.type === "block" && n.content?.mod === MOD && (n.content.props?.view ?? "side") === "side";
+export function sidePanelId(tree, view = "side") {
+  const isSide = (n) => n?.type === "block" && n.content?.mod === MOD && (n.content.props?.view ?? "side") === view;
   const find = (node, path) => {
     if (!node) return null;
     if (isSide(node)) return [...path, node];
@@ -152,6 +156,11 @@ export function sidePanelId(tree) {
 
 // shared(OPEN).key asking the full view to show its Runs tab.
 export const RUNS_KEY = "runs";
+// ... selecting the MRs tab.
+export const MRS_KEY = "mrs";
+
+// The key asking the full view to open an MR's tab (parseOpen reads it back).
+export const mrKey = ({ kind, host, path }, n) => JSON.stringify({ kind, host, path, mr: n });
 
 // What omni-forge's own Herdr tabs are called, and the icon the tab bars draw for them
 // (both bars read a mod tab's icon from shared("mod-icons")).
