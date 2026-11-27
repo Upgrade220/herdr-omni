@@ -46,6 +46,27 @@ export function noteMarkdown(body, repo) {
     .replace(/\]\((\/[^)\s]*)/g, (_m, href) => `](${abs(href)}`);
 }
 
+const stripTags = (html) => String(html).replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+
+// A system note ("added 2 commits", "approved this merge request") as an event: its first line and,
+// for commits, "<sha> <subject>" of each (GitLab lists them as HTML). Null for a person's comment.
+export function systemEvent(note) {
+  if (!note?.system) return null;
+  const body = String(note.body ?? "");
+  const text = body.split("\n").find((l) => l.trim())?.trim() ?? "";
+  const commits = [...body.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => stripTags(m[1]).replace(/^(\w+)\s+-\s+/, "$1 "));
+  return { text, commits };
+}
+
+// What a thread's head says: its file:line, "Thread" when it has replies, "Comment" for a lone one;
+// null for a thread of system notes only, which is drawn as an event line, not a card.
+export function threadLabel(th) {
+  const notes = th?.notes ?? [];
+  if (notes.length && notes.every((n) => n.system)) return null;
+  if (th.path) return th.line != null ? `${th.path}:${th.line}` : th.path;
+  return notes.length > 1 ? "Thread" : "Comment";
+}
+
 // A thread takes replies when it is resolvable, or is a GitHub comment thread (`c:` ids).
 const replyable = (th) => Boolean(th.resolvable) || String(th.id).startsWith("c:");
 
@@ -413,20 +434,39 @@ export class MrPage {
       .child(TextView.markdown(id, noteMarkdown(body, this.repo)).selectable(true).w_full());
   }
 
+  // A person's comment: a header (initial, name, age) set apart from the text, which sits indented
+  // under the name. A system note inside a thread is an event line.
   note(t, n, id, now) {
-    return v_flex().id(id).gap(2).min_w(0)
-      .child(h_flex().gap(6).items_center()
-        .child(div().text_size(12).font_semibold().text_color(n.dim ? t.dim : t.foreground).child(n.author || "?"))
+    if (n.system) return this.event(t, n, id, now, 0);
+    const initial = String(n.author || "?").slice(0, 1).toUpperCase();
+    return v_flex().id(id).gap(4).min_w(0)
+      .child(h_flex().gap(8).items_center()
+        .child(div().flex_none().size(18).rounded_full().bg(t.border).items_center().justify_center().flex()
+          .text_size(10).font_semibold().text_color(t.muted).child(initial))
+        .child(div().text_size(12).font_semibold().text_color(t.accent).child(n.author || "?"))
         .child(div().text_size(11).text_color(t.dim).child(ago(n.createdAt, now))))
-      .child(this.markdown(t, `${id}-body`, n.body, n.dim ? t.dim : t.foreground));
+      .child(div().pl(26).child(this.markdown(t, `${id}-body`, n.body, t.foreground)));
+  }
+
+  // "● author added 2 commits · 2h", the commits under it in small mono. No card, no reply box.
+  event(t, n, id, now, mx = 14) {
+    const ev = systemEvent(n);
+    return v_flex().id(id).flex_none().mx(mx).my(2).gap(2).min_w(0)
+      .child(h_flex().gap(6).items_center().min_w(0)
+        .child(div().flex_none().size(6).rounded_full().bg(t.dim))
+        .child(div().min_w(0).truncate().text_size(12).text_color(t.dim)
+          .child([`${n.author ?? ""} ${ev?.text ?? ""}`.trim(), ago(n.createdAt, now)].filter(Boolean).join(" · "))))
+      .children((ev?.commits ?? []).map((c, k) => div().id(`${id}-c${k}`).pl(12).min_w(0).truncate().text_size(11).font_family(mono()).text_color(t.dim).child(c)));
   }
 
   // One thread, one card: its head (file:line or "Comment", resolved, fold arrow), the first comment,
   // the replies indented under a line, the reply box. A folded thread shows its head and first line.
+  // A thread of system notes only is a line of events instead.
   thread(t, th, i, now) {
+    const where = threadLabel(th);
+    if (where == null) return v_flex().id(`mr-thread-${i}`).flex_none().children(th.notes.map((n, j) => this.event(t, n, `mr-note-${i}-${j}`, now)));
     const folded = this.folded(th);
     const [root, ...replies] = th.notes;
-    const where = th.path ? (th.line != null ? `${th.path}:${th.line}` : th.path) : replies.length ? "Thread" : "Comment";
     const head = h_flex().id(`mr-thread-head-${i}`).gap(8).items_center().cursor_pointer()
       .on_click((_e, cx) => this.toggleFold(cx, th))
       .child(div().flex_none().w(10).text_size(11).text_color(t.dim).child(folded ? "▸" : "▾"))
@@ -437,14 +477,14 @@ export class MrPage {
       .child(div().flex_1())
       .when(replies.length > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(`${replies.length} ${replies.length === 1 ? "reply" : "replies"}`)))
       .when(Boolean(th.resolved), (e) => e.child(pill(t, { label: "resolved", glyph: "✓", color: t.ansi2 })));
-    const card = v_flex().id(`mr-thread-${i}`).flex_none().mx(14).my(4).px(10).py(8).gap(8).rounded(8).bg(t.raised).border_1().border_color(t.border).child(head);
+    const card = v_flex().id(`mr-thread-${i}`).flex_none().mx(14).my(4).px(10).py(8).gap(10).rounded(8).bg(t.raised).border_1().border_color(t.border).child(head);
     if (folded) {
       const first = String(root?.body ?? "").split("\n").find((l) => l.trim()) ?? "";
       return card.child(div().min_w(0).truncate().text_size(12).text_color(t.dim).child(`${root?.author ?? ""}: ${first}`));
     }
     return card
       .when(Boolean(root), (e) => e.child(this.note(t, root, `mr-note-${i}-0`, now)))
-      .when(replies.length > 0, (e) => e.child(v_flex().ml(4).pl(12).gap(10).border_l_2().border_color(t.border)
+      .when(replies.length > 0, (e) => e.child(v_flex().ml(8).pl(12).gap(12).border_l_2().border_color(t.border)
         .children(replies.map((n, j) => this.note(t, n, `mr-note-${i}-${j + 1}`, now)))))
       .when(this.replyBoxes.has(th.id), (e) => e.child(this.replyForm(t, th, i)));
   }

@@ -420,3 +420,21 @@ test("noteMarkdown: links to the forge become absolute, images become links", ()
   assert.equal(mod.noteMarkdown("![](https://e.org/a.png) and [x](https://e.org)", gl), "[🖼 image](https://e.org/a.png) and [x](https://e.org)");
   assert.equal(mod.noteMarkdown("", gl), "");
 });
+
+test("systemEvent: a system note's first line and its commits; a plain note is no event", () => {
+  const { mod } = setup();
+  const body = "added 2 commits\n\n<ul><li>8791b672 - Fix totals</li><li>e3fee07a - Round <b>sums</b></li></ul>\n\n[Compare with previous version](/group/app/-/merge_requests/7/diffs?diff_id=1)";
+  assert.deepEqual(plain(mod.systemEvent({ system: true, body })), { text: "added 2 commits", commits: ["8791b672 Fix totals", "e3fee07a Round sums"] });
+  assert.deepEqual(plain(mod.systemEvent({ system: true, body: "approved this merge request" })), { text: "approved this merge request", commits: [] });
+  assert.equal(mod.systemEvent({ system: false, body: "looks good" }), null);
+});
+
+test("threadLabel: a line thread's file:line, a thread with replies, a lone comment; an all-system thread is an event", () => {
+  const { mod } = setup();
+  const n = (system = false) => ({ id: "n", author: "a", body: "x", createdAt: "", system });
+  assert.equal(mod.threadLabel({ path: "a.js", line: 3, notes: [n()] }), "a.js:3");
+  assert.equal(mod.threadLabel({ path: "a.js", line: null, notes: [n()] }), "a.js");
+  assert.equal(mod.threadLabel({ notes: [n(), n()] }), "Thread");
+  assert.equal(mod.threadLabel({ notes: [n()] }), "Comment");
+  assert.equal(mod.threadLabel({ notes: [n(true)] }), null);
+});
