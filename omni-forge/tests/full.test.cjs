@@ -30,10 +30,11 @@ function setup({ checking = false, given = {}, focus = focusOn("pf", "F"), share
     refresh() { env.logRefreshes.push(this.props.jobId); }
   }
   const files = ["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/locate.js", "views/mrs.js", "views/ui.js", "views/mr-list.js", "views/repo.js", "views/tabs.js"];
-  if (realPage) files.push("views/people.js", "views/mr-page.js");
+  if (realPage) files.push("views/people.js", "code/syntax.js", "views/mr-page.js");
   const { FullView } = load([...files, "views/full.js"], {
     TextareaState: { new: () => ({ on() {}, value: () => "", set_value() {}, set_auto_grow() {} }) },
     openMrFile: async (a) => { openedFiles.push(a); return { ok: true }; },
+    followThemeCode: (view) => { view.themeCode = null; },
     openNewMrDialog: (a) => { env.dialogs = (env.dialogs ?? []).concat([a]); },
     InputState: { new: () => ({ on() {}, value: () => "", set_value() {} }) },
     exec: () => {},

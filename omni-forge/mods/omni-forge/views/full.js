@@ -20,6 +20,7 @@ import { openNewMrDialog } from "./new-mr.js";
 import { MrList } from "./mr-list.js";
 import { MrPage } from "./mr-page.js";
 import { Tabs } from "./tabs.js";
+import { followThemeCode } from "../code/theme-code.js";
 import { parseOpen, isVisible, mayTakeOpen, fullTabs, nextLoc, OPEN, LAST_LOC, RUNS_KEY, MRS_KEY } from "./locate.js";
 import { RepoView, sameRepo } from "./repo.js";
 import { statusIcon, runPills, button, busyState, message, errorState, tabPill } from "./ui.js";
@@ -39,6 +40,7 @@ export class FullView extends RepoView {
     this.tabs.onEvict = (tab) => this.dropTab(tab);
     this.ownTab = null;
     this.mrList = new MrList(this);
+    followThemeCode(this, cx); // this.themeCode: the shown theme's code colours, for MR pages' code
     // props.open names the repo and run or MR: show them at once, without detection.
     if (this.props.open === MRS_KEY) this.tabs.select("mrs");
     else if (this.props.open) this.openKey(this.props.open, cx, { load: !checking() });

@@ -1,13 +1,15 @@
 // MrPage: one MR's page inside the full view's MR tab (read side): header, description, discussion,
 // changed files. `owner` is the FullView (repo, loc, provider, gen, tabs, mrPages, openRun()). Like
 // Detail, one object per tab with a stale guard; no cx is stored. Polls every 15 s while its tab shows.
-import { div, svg } from "gpui-kit";
+import { div, svg, uniform_list } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
 import { nextDelay } from "../ci/poller.js";
 import { ago } from "./runs.js";
 import { mrNumber } from "./mrs.js";
 import { openMrFile } from "../actions/diff.js";
 import { PeoplePicker } from "./people.js";
+import { languageOf, tokenizeLine } from "../code/syntax.js";
+import { codeColorsFrom } from "../code/theme-code.js";
 import { pill, statusPill, section, button, busyState, mono, icon } from "./ui.js";
 
 export const POLL_MS = 15000;
@@ -68,6 +70,7 @@ export function threadLabel(th) {
 }
 
 export const SNIPPET_LINES = 4;
+const CODE_ROW_H = 20;
 
 // The last `n` rows of a diff hunk (GitHub's diffHunk ends at the commented line): { no, mark, text },
 // `no` being the line's number on its own side.
@@ -97,6 +100,32 @@ export function snippetFromFile(text, line, mark = " ", n = SNIPPET_LINES) {
   for (let no = Math.max(1, line - n + 1); no <= line; no++) rows.push({ no, mark: no === line ? mark : " ", text: lines[no - 1] });
   return rows;
 }
+
+// How far above a snippet its file is read for what is still open there (a block comment, a string).
+const LEAD_LINES = 80;
+
+// Rows with their syntax runs. `lead` is the file's lines before the first row (open comments carry
+// in); a hunk's removed rows carry their own state, as the Diff tab does. A failure leaves rows plain.
+export function withRuns(rows, path, lead = []) {
+  const language = languageOf(path);
+  try {
+    let before = null;
+    for (const line of lead) before = tokenizeLine(line, language, before).state;
+    let after = before;
+    return rows.map((r) => {
+      const res = tokenizeLine(r.text ?? "", language, r.mark === "-" ? before : after);
+      if (r.mark === "-") before = res.state;
+      else if (r.mark === "+") after = res.state;
+      else before = after = res.state;
+      return { ...r, runs: res.runs };
+    });
+  } catch {
+    return rows.map((r) => ({ ...r, runs: [{ text: r.text ?? "", kind: null }] }));
+  }
+}
+
+// The key of a thread's code rows, or null for a thread without code.
+const snippetKey = (th) => (th.hunk ? `${th.path}\0${th.hunk}` : th.at ? `${th.at.sha}\0${th.at.path}\0${th.at.line}\0${th.at.mark}` : null);
 
 // A thread takes replies when it is resolvable, or is a GitHub comment thread (`c:` ids).
 const replyable = (th) => Boolean(th.resolvable) || String(th.id).startsWith("c:");
@@ -145,6 +174,7 @@ export class MrPage {
         if (gen !== this.owner.gen || this.owner.mrPages.get(this.number) !== this) { current = false; return; }
         this.data = data;
         this.syncReplyBoxes();
+        this.prepareSnippets();
         this.loadSnippets(cx);
         this.error = null;
         this.errors = 0;
@@ -272,19 +302,30 @@ export class MrPage {
   // The code a line thread points at: { rows } | { loading } | { error }, or null (no code, or a
   // GitLab file not read yet). GitHub threads carry their hunk; GitLab ones read the file at its commit.
   snippet(th) {
-    const rows = (key, make) => {
-      let r = this.snippetRows.get(key);
-      if (!r) { r = make(); this.snippetRows.set(key, r); }
-      return { rows: r };
-    };
-    if (th.hunk) return rows(th.hunk, () => snippetFromHunk(th.hunk));
-    const at = th.at;
-    if (!at) return null;
-    const f = this.files.get(`${at.sha}\0${at.path}`);
+    const key = snippetKey(th);
+    if (!key) return null;
+    const ready = this.snippetRows.get(key);
+    if (ready) return { rows: ready };
+    if (th.hunk) return null;
+    const f = this.files.get(`${th.at.sha}\0${th.at.path}`);
     if (!f) return null;
-    if (f.loading) return { loading: true };
     if (f.error) return { error: f.error };
-    return rows(`${at.sha}\0${at.path}\0${at.line}\0${at.mark}`, () => snippetFromFile(f.lines, at.line, at.mark));
+    return { loading: true };
+  }
+
+  // Works out the rows (with syntax runs) of every thread whose code is in hand: never in render,
+  // which reads them ready (highlighting is slow there and Herdr cuts a slow render off).
+  prepareSnippets() {
+    for (const th of this.data?.threads ?? []) {
+      const key = snippetKey(th);
+      if (!key || this.snippetRows.has(key)) continue;
+      if (th.hunk) { this.snippetRows.set(key, withRuns(snippetFromHunk(th.hunk), th.path)); continue; }
+      const f = this.files.get(`${th.at.sha}\0${th.at.path}`);
+      if (!f?.lines) continue;
+      const rows = snippetFromFile(f.lines, th.at.line, th.at.mark);
+      const first = rows[0]?.no ?? 1;
+      this.snippetRows.set(key, withRuns(rows, th.at.path, f.lines.slice(Math.max(0, first - 1 - LEAD_LINES), first - 1)));
+    }
   }
 
   // Reads, one after another, the files of unfolded GitLab line threads not read yet (each commit and
@@ -303,7 +344,7 @@ export class MrPage {
     if (!want.length || !p?.fileAt) { for (const w of want) this.files.delete(w.key); return; }
     cx.spawn(async (cx) => {
       for (const { key, at } of want) {
-        try { this.files.set(key, { lines: String(await p.fileAt(at.sha, at.path) ?? "").split("\n") }); }
+        try { this.files.set(key, { lines: String(await p.fileAt(at.sha, at.path) ?? "").split("\n") }); this.prepareSnippets(); }
         catch (e) { this.files.set(key, { error: errorText(e) }); }
         cx.notify();
       }
@@ -582,14 +623,25 @@ export class MrPage {
     if (code.error) return frame.child(div().px(10).min_w(0).truncate().text_size(11).text_color(t.dim).child(`Code not shown: ${code.error.split("\n")[0]}`));
     if (!code.rows.length) return frame.child(div().px(10).text_size(11).text_color(t.dim).child("This line is no longer in the file."));
     const last = code.rows.length - 1;
-    return frame.children(code.rows.map((r, k) => {
-      const color = r.mark === "+" ? t.ansi2 : r.mark === "-" ? t.ansi1 : t.dim;
-      return h_flex().id(`mr-code-${i}-${k}`).min_w(0).px(6).gap(8).text_size(12).font_family(mono())
-        .when(k === last, (e) => e.bg(t.hover))
+    const colors = codeColorsFrom(t, this.owner.themeCode);
+    // Rows are built in a uniform_list: Herdr calls it from layout, only while the box is on screen,
+    // so a page of many line comments keeps its own render small (a word per element adds up).
+    const rows = code.rows;
+    return frame.child(uniform_list(`mr-code-${i}-${this.number}`, rows.length, (k) => String(k), (range) => {
+      const out = [];
+      for (let k = range.start; k < range.end; k++) out.push(this.codeRow(t, rows[k], k === last, colors));
+      return out;
+    }).h(rows.length * CODE_ROW_H));
+  }
+
+  codeRow(t, r, current, colors) {
+    const color = r.mark === "+" ? t.ansi2 : r.mark === "-" ? t.ansi1 : t.dim;
+    return h_flex().w_full().h(CODE_ROW_H).min_w(0).px(6).gap(8).items_center().text_size(12).font_family(mono())
+        .when(current, (e) => e.bg(t.hover))
         .child(div().flex_none().w(36).text_color(t.dim).child(String(r.no)))
         .child(div().flex_none().w(10).text_color(color).child(r.mark === " " ? "" : r.mark === "-" ? "−" : "+"))
-        .child(div().flex_1().min_w(0).truncate().text_color(r.mark === " " ? t.foreground : color).child(r.text.replace(/\t/g, "    ") || " "));
-    }));
+        .child(h_flex().flex_1().min_w(0).overflow_hidden()
+          .children((r.runs ?? [{ text: r.text, kind: null }]).map((run) => div().flex_none().whitespace_nowrap().text_color(colors[run.kind] ?? t.foreground).child(run.text.replace(/\t/g, "    ") || " "))));
   }
 
   replyForm(t, th, i) {

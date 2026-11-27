@@ -12,7 +12,7 @@ function fakeState() {
 
 function setup({ detail, opened = [], results = [], provider = {}, capabilities = {}, me = undefined } = {}) {
   const env = { opened, notified: [], labels: [], calls: [] };
-  const mod = load(["ci/poller.js", "forge/model.js", "views/runs.js", "views/mrs.js", "views/ui.js", "views/people.js", "views/mr-page.js"], {
+  const mod = load(["ci/poller.js", "forge/model.js", "views/runs.js", "views/mrs.js", "views/ui.js", "views/people.js", "code/syntax.js", "views/mr-page.js"], {
     InputState: { new: fakeState },
     TextareaState: { new: () => Object.assign(fakeState(), { set_auto_grow() {} }) },
     notify: (n) => env.notified.push(n),
@@ -487,7 +487,7 @@ test("snippets: a failed read shows its error; GitHub threads use their hunk wit
   });
   await settle();
   assert.match(page.snippet(page.data.threads[0]).error, /404/);
-  assert.deepEqual(plain(page.snippet(page.data.threads[1]).rows), [{ no: 5, mark: " ", text: "a" }, { no: 6, mark: "+", text: "b" }]);
+  assert.deepEqual(plain(page.snippet(page.data.threads[1]).rows.map(({ no, mark, text }) => ({ no, mark, text }))), [{ no: 5, mark: " ", text: "a" }, { no: 6, mark: "+", text: "b" }]);
 });
 
 test("the files list folds and unfolds", async () => {
@@ -497,4 +497,29 @@ test("the files list folds and unfolds", async () => {
   assert.equal(page.filesOpen, false);
   page.toggleFiles(cx);
   assert.equal(page.filesOpen, true);
+});
+
+test("snippet rows carry syntax runs: a JS keyword, a string; a comment opened above the window stays a comment", async () => {
+  const at = (line) => ({ sha: "h1", path: "a.js", line, mark: "+" });
+  const { page, settle } = await ready({
+    detail: withMr({}, [thread("d1", { path: "a.js", line: 7, at: at(7) }), thread("t|1", { path: "c.py", line: 6, hunk: "@@ -5,1 +5,2 @@\n def f():\n+    return 'x'" })]),
+    provider: { fileAt: async () => "/*\n1\n2\n3\n4\nstill comment */\nconst s = 'x';\n" },
+  });
+  await settle();
+  const rows = page.snippet(page.data.threads[0]).rows;
+  const last = plain(rows[rows.length - 1].runs);
+  assert.deepEqual(last.find((r) => r.text === "const"), { text: "const", kind: "keyword" });
+  assert.equal(last.find((r) => r.text.includes("'x'")).kind, "string");
+  assert.equal(plain(rows[rows.length - 2].runs)[0].kind, "comment");
+  const py = page.snippet(page.data.threads[1]).rows;
+  assert.equal(plain(py[0].runs).find((r) => r.text === "def").kind, "keyword");
+});
+
+test("code rows are worked out when data and files arrive, so render only reads them", async () => {
+  const { page, settle } = await ready({
+    detail: withMr({}, [thread("t|1", { path: "c.js", line: 6, hunk: "@@ -5,1 +5,2 @@\n a\n+b" }), thread("d1", { path: "a.js", line: 1, at: { sha: "h", path: "a.js", line: 1, mark: " " } })]),
+    provider: { fileAt: async () => "x\n" },
+  });
+  await settle();
+  assert.equal(page.snippetRows.size, 2);
 });
