@@ -19,11 +19,11 @@ This covers CI and MRs (parts 1 and 2 of 4). Inline comments drawn in the diff a
 
 ## Merge requests
 
-- **Side list.** A second narrow block in the right panel, opened by an **MRs** button. Chips: **To review** (you are a reviewer and haven't approved; the default), **Mine** and **All open**, each with a count, plus a filter box over title, number, author and branch. A row shows the title, `!412` (GitLab) or `#412` (GitHub), author, source → target, a Draft marker, the pipeline status, approvals, unresolved threads and age. A click opens the MR in the full tab.
-- **MRs tab.** The full tab has a fixed **MRs** tab beside **Runs** with the same list, and a **New MR** button. Each MR you open is a tab of its own, and the full tab holds up to 8 tabs including Runs and MRs (the least recently used opened tab closes first).
-- **MR page.** Title, state (open, draft, merged, closed), author, source → target, pipeline pill (opens that run in the CI part), approvals and **Open in browser**; the description as readable text; the discussion with replies and **Resolve / Unresolve**, and a box for a new comment; and the changed files with their +/− counts. It refreshes every 15 seconds while its tab is shown. A merged or closed MR stays in its tab, showing its new state.
+- **Side list.** A second narrow block in the right panel, opened by a **PRs** button. Chips: **To review** (you are a reviewer and haven't approved; the default), **Mine** and **All open**, each with a count, plus a filter box over title, number, author and branch. A row shows the title, `!412` (GitLab) or `#412` (GitHub), author, source → target, a Draft marker, the pipeline status, approvals, unresolved threads and age. A click opens the MR in the full tab.
+- **PRs tab.** The full tab has a fixed **PRs** tab beside **Runs** with the same list, and a **New PR** button. Each MR you open is a tab of its own, and the full tab holds up to 8 tabs including Runs and PRs (the least recently used opened tab closes first).
+- **MR page.** Title, state (open, draft, merged, closed), author, source → target, pipeline pill (opens that run in the CI part), approvals and **Open in browser**; the description and comments rendered as Markdown; the discussion as threads (one card per thread: the first comment, its replies indented under it; resolved threads folded to one line until clicked) with **Reply** and **Resolve / Unresolve**, and a box for a new comment; and the changed files with their +/− counts. It refreshes every 15 seconds while its tab is shown. A merged or closed MR stays in its tab, showing its new state.
 - **Actions** on an open MR: **Approve** (and **Revoke** where the forge has it), **Edit** title and description, **Mark as draft / Mark as ready**, **Reviewers…** and **Assignees…** (a search-as-you-type picker), **Close**, and **Reopen** on a closed one.
-- **New MR.** A dialog from the MRs list. Source is the current branch, target the repo's default branch (changeable); the title is filled from the last commit, and you can set a description, Draft and reviewers. A branch with no upstream says so and offers **Push branch first** (`git push --set-upstream`, only when you click it). The new MR opens in the full tab.
+- **New PR.** A dialog from the PRs list. Source is the current branch, target the repo's default branch (changeable); the title is filled from the last commit, and you can set a description, Draft and reviewers. A branch with no upstream says so and offers **Push branch first** (`git push --set-upstream`, only when you click it). The new MR opens in the full tab.
 - **No Merge button, by design.** Merging happens in the browser, where the forge shows its own checks and rules.
 
 ### Changes in the Diff tab
@@ -86,7 +86,7 @@ The MR list is its own block in the same stack, after `ci`:
 and its Better Tabs button, after the CI one:
 
 ```json
-{"id":"mrs","label":"MRs","group":"panels","when":{"node":"mrs"},"action":{"type":"panel","container":"panel","stack":"panel-body","target":"mrs"}}
+{"id":"mrs","label":"PRs","icon":"mods/omni-forge/icons/pr.svg","group":"panels","when":{"node":"mrs"},"action":{"type":"panel","container":"panel","stack":"panel-body","target":"mrs"}}
 ```
 
 After editing, check that there's no `layouts/<name>.error` file. The full tab opens from a click on a run; to open it by hand:

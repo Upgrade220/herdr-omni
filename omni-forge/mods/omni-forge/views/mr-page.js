@@ -2,7 +2,7 @@
 // changed files. `owner` is the FullView (repo, loc, provider, gen, tabs, mrPages, openRun()). Like
 // Detail, one object per tab with a stale guard; no cx is stored. Polls every 15 s while its tab shows.
 import { div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
+import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
 import { nextDelay } from "../ci/poller.js";
 import { ago } from "./runs.js";
 import { mrNumber } from "./mrs.js";
@@ -35,6 +35,17 @@ export function mrWebUrl(repo, number, mr) {
   return repo.kind === "gitlab" ? `https://${repo.host}/${repo.path}/-/merge_requests/${number}` : `https://${repo.host}/${repo.path}/pull/${number}`;
 }
 
+// Markdown of a description or comment, ready for TextView: links into the forge ("/uploads/…" is
+// the project's, any other "/…" the host's) become absolute, and images become links to them (the
+// forge serves them only to a logged-in browser).
+export function noteMarkdown(body, repo) {
+  const host = repo?.host ? `https://${repo.host}` : "";
+  const abs = (href) => (!href.startsWith("/") || !host ? href : href.startsWith("/uploads/") && repo.path ? `${host}/${repo.path}${href}` : `${host}${href}`);
+  return String(body ?? "")
+    .replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, alt, src) => `[🖼 ${alt || "image"}](${abs(src)})`)
+    .replace(/\]\((\/[^)\s]*)/g, (_m, href) => `](${abs(href)}`);
+}
+
 // A thread takes replies when it is resolvable, or is a GitHub comment thread (`c:` ids).
 const replyable = (th) => Boolean(th.resolvable) || String(th.id).startsWith("c:");
 
@@ -54,6 +65,7 @@ export class MrPage {
     this.again = false; // a write finished while a load was out: load once more
     this.editing = false;
     this.people = null; // { kind, picker, onSave, onCancel } while Reviewers / Assignees is open
+    this.flipped = new Set(); // thread ids folded or unfolded against their default
     this.replyBoxes = new Map(); // thread id -> TextareaState, filled when data arrives
     this.commentBox = TextareaState.new({ placeholder: "Write a comment" });
     this.commentBox.set_auto_grow(2, 8);
@@ -186,6 +198,15 @@ export class MrPage {
     });
   }
 
+  // Resolved threads start folded to their first line, open ones unfolded; a click on the thread's
+  // head flips it.
+  folded(th) { return Boolean(th.resolved) !== this.flipped.has(th.id); }
+
+  toggleFold(cx, th) {
+    if (this.flipped.has(th.id)) this.flipped.delete(th.id); else this.flipped.add(th.id);
+    cx.notify();
+  }
+
   toggleResolve(cx, th) {
     const resolved = !th.resolved;
     this.act(cx, `mr-resolve-${th.id}`, resolved ? "Resolve" : "Unresolve", () => this.owner.provider.resolve(Number(this.number), th.id, resolved));
@@ -278,7 +299,7 @@ export class MrPage {
 
   topBar(t, url) {
     return h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b_1().border_color(t.border)
-      .child(button(t, "mr-back", "‹ MRs", (cx) => this.owner.selectTab("mrs", cx)))
+      .child(button(t, "mr-back", "‹ PRs", (cx) => this.owner.selectTab("mrs", cx)))
       .child(div().flex_1())
       .when(Boolean(url), (e) => e.child(button(t, "mr-web", "Open in browser", (cx) => cx.open_url(url))));
   }
@@ -289,12 +310,12 @@ export class MrPage {
     if (!this.data) {
       const body = this.error
         ? v_flex().flex_1().min_h(0).p(16).gap(10).items_start()
-          .child(div().text_color(t.ansi1).child("Cannot load this MR"))
+          .child(div().text_color(t.ansi1).child("Cannot load this PR"))
           .child(div().px(8).py(4).rounded(6).bg(t.raised).text_size(12).font_family(mono()).text_color(t.foreground).child(errorText(this.error)))
           .child(h_flex().gap(8)
             .child(button(t, "mr-retry", "Try again", (cx) => this.load(cx)))
             .child(button(t, "mr-web-error", "Open in browser", (cx) => cx.open_url(url))))
-        : busyState(t, "Loading MR…");
+        : busyState(t, "Loading PR…");
       return v_flex().flex_1().min_h(0).child(top).child(body);
     }
     const { mr, description, files } = this.data;
@@ -309,7 +330,7 @@ export class MrPage {
         .when(Boolean(this.people), (e) => e.child(this.people.picker.render(t, `mr-${this.people.kind}-picker`, { busy: this.busy() })))
         .when(Boolean(this.error), (e) => e.child(div().px(14).pb(6).text_size(11).text_color(t.ansi1).child(`Update failed: ${errorText(this.error)}`)))
         .child(section(t, "DESCRIPTION", null, t.muted))
-        .child(div().px(14).py(4).text_size(13).text_color(description ? t.foreground : t.dim).child(description || "No description."))
+        .child(div().px(14).py(4).child(description ? this.markdown(t, "mr-description", description) : div().text_size(13).text_color(t.dim).child("No description.")))
         .child(section(t, "DISCUSSION", threads.length, t.muted))
         .children(threads.length ? threads.map((th, i) => this.thread(t, th, i, now)) : [div().px(14).py(4).text_size(12).text_color(t.dim).child("No discussion yet.")])
         .when(Boolean(this.data.olderThreads), (e) => e.child(h_flex().px(14).py(4).gap(6).items_center()
@@ -386,17 +407,45 @@ export class MrPage {
       .child(div().text_size(11).text_color(t.dim).child(`${mr.author} · ${mr.source} → ${mr.target} · ${ago(mr.updatedAt, now)}`));
   }
 
+  // Markdown of a description or comment.
+  markdown(t, id, body, color) {
+    return div().w_full().min_w(0).text_size(13).text_color(color ?? t.foreground)
+      .child(TextView.markdown(id, noteMarkdown(body, this.repo)).selectable(true).w_full());
+  }
+
+  note(t, n, id, now) {
+    return v_flex().id(id).gap(2).min_w(0)
+      .child(h_flex().gap(6).items_center()
+        .child(div().text_size(12).font_semibold().text_color(n.dim ? t.dim : t.foreground).child(n.author || "?"))
+        .child(div().text_size(11).text_color(t.dim).child(ago(n.createdAt, now))))
+      .child(this.markdown(t, `${id}-body`, n.body, n.dim ? t.dim : t.foreground));
+  }
+
+  // One thread, one card: its head (file:line or "Comment", resolved, fold arrow), the first comment,
+  // the replies indented under a line, the reply box. A folded thread shows its head and first line.
   thread(t, th, i, now) {
-    return v_flex().id(`mr-thread-${i}`).flex_none().mx(14).my(4).p(8).gap(6).rounded(8).bg(t.raised)
-      .when(Boolean(th.path), (e) => e.child(h_flex().gap(8).items_center()
-        .child(div().id(`mr-thread-link-${i}`).min_w(0).truncate().text_size(12).font_family(mono()).text_color(t.accent).cursor_pointer()
-          .on_click((_e, cx) => this.openFile(cx, th.path))
-          .child(th.line != null ? `${th.path}:${th.line}` : th.path))
-        .when(Boolean(th.resolved), (e2) => e2.child(pill(t, { label: "resolved", glyph: "✓", color: t.ansi2 })))))
-      .when(!th.path && Boolean(th.resolved), (e) => e.child(pill(t, { label: "resolved", glyph: "✓", color: t.ansi2 })))
-      .children(th.notes.map((n, j) => v_flex().id(`mr-note-${i}-${j}`).gap(2)
-        .child(div().text_size(11).text_color(t.dim).child([n.author, ago(n.createdAt, now)].filter(Boolean).join(" · ")))
-        .child(div().text_size(13).text_color(n.dim ? t.dim : t.foreground).child(n.body))))
+    const folded = this.folded(th);
+    const [root, ...replies] = th.notes;
+    const where = th.path ? (th.line != null ? `${th.path}:${th.line}` : th.path) : replies.length ? "Thread" : "Comment";
+    const head = h_flex().id(`mr-thread-head-${i}`).gap(8).items_center().cursor_pointer()
+      .on_click((_e, cx) => this.toggleFold(cx, th))
+      .child(div().flex_none().w(10).text_size(11).text_color(t.dim).child(folded ? "▸" : "▾"))
+      .when(Boolean(th.path), (e) => e.child(div().id(`mr-thread-link-${i}`).min_w(0).truncate().text_size(12).font_family(mono()).text_color(t.accent).cursor_pointer()
+        .on_click((_e, cx) => { cx.stop_propagation(); this.openFile(cx, th.path); })
+        .child(where)))
+      .when(!th.path, (e) => e.child(div().min_w(0).truncate().text_size(12).text_color(t.dim).child(where)))
+      .child(div().flex_1())
+      .when(replies.length > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(`${replies.length} ${replies.length === 1 ? "reply" : "replies"}`)))
+      .when(Boolean(th.resolved), (e) => e.child(pill(t, { label: "resolved", glyph: "✓", color: t.ansi2 })));
+    const card = v_flex().id(`mr-thread-${i}`).flex_none().mx(14).my(4).px(10).py(8).gap(8).rounded(8).bg(t.raised).border_1().border_color(t.border).child(head);
+    if (folded) {
+      const first = String(root?.body ?? "").split("\n").find((l) => l.trim()) ?? "";
+      return card.child(div().min_w(0).truncate().text_size(12).text_color(t.dim).child(`${root?.author ?? ""}: ${first}`));
+    }
+    return card
+      .when(Boolean(root), (e) => e.child(this.note(t, root, `mr-note-${i}-0`, now)))
+      .when(replies.length > 0, (e) => e.child(v_flex().ml(4).pl(12).gap(10).border_l_2().border_color(t.border)
+        .children(replies.map((n, j) => this.note(t, n, `mr-note-${i}-${j + 1}`, now)))))
       .when(this.replyBoxes.has(th.id), (e) => e.child(this.replyForm(t, th, i)));
   }
 

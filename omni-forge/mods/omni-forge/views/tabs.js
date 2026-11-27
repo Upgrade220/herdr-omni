@@ -4,7 +4,7 @@
 export const MAX_TABS = 8;
 
 const RUNS = { id: "runs", kind: "runs", label: "Runs" };
-const MRS = { id: "mrs", kind: "mrs", label: "MRs" };
+const MRS = { id: "mrs", kind: "mrs", label: "PRs" };
 const FIXED = new Set([RUNS.id, MRS.id]);
 
 const runLabel = ({ id, title, number }) => (number != null ? `#${number} ${title ?? ""}`.trim() : title || `Run ${id}`);

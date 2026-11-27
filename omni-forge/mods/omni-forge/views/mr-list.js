@@ -19,7 +19,7 @@ export class MrList {
     this.errors = 0;
     this.chip = "review";
     this.at = 0;
-    this.filter = InputState.new({ placeholder: "Filter MRs" });
+    this.filter = InputState.new({ placeholder: "Filter PRs" });
     this.filter.on("change", (_e, cx) => cx.notify());
   }
 
@@ -77,10 +77,10 @@ export class MrList {
       }))
       .child(h_flex().flex_wrap().gap(4).items_center()
         .children(MR_CHIPS.map((c) => filterChip(t, `${ids}-chip-${c.id}`, c.label, counts[c.id], this.chip === c.id, (cx) => this.setChip(c.id, cx))))
-        .when(Boolean(onNew), (e) => e.child(div().flex_1().min_w(0)).child(button(t, `${ids}-new`, "New MR", () => onNew()))));
+        .when(Boolean(onNew), (e) => e.child(div().flex_1().min_w(0)).child(button(t, `${ids}-new`, "New PR", () => onNew()))));
     const rows = v_flex().flex_1().min_h(0).overflow_y_scroll()
       .children(shown.map((m) => this.row(t, m, { compact, onOpen, ids, kind })))
-      .when(!shown.length, (e) => e.child(message(t, typed ? "No MR matches the filter" : this.chip === "review" ? "Nothing to review" : "No open MRs")));
+      .when(!shown.length, (e) => e.child(message(t, typed ? "No PR matches the filter" : this.chip === "review" ? "Nothing to review" : "No open PRs")));
     return v_flex().flex_1().min_h(0).w_full()
       .child(controls)
       .when(Boolean(this.error), (e) => e.child(errorState(t, `${ids}-retry`, this.error, (cx) => this.load(cx))))

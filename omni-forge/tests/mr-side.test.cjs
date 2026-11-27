@@ -60,7 +60,7 @@ test("Full opens the MRs tab; without a full tab a new one named MRs opens", () 
   b.view.openInFull({ number: 7 });
   assert.equal(b.env.shared["omni-forge.open"], undefined);
   assert.deepEqual(plain(b.env.runs), [
-    ["tab.new", { name: "MRs", mod: "omni-forge", props: { view: "full", open: '{"kind":"gitlab","host":"git.example.org","path":"group/app","mr":7}' } }],
+    ["tab.new", { name: "PRs", mod: "omni-forge", props: { view: "full", open: '{"kind":"gitlab","host":"git.example.org","path":"group/app","mr":7}' } }],
     ["layout.hide", { id: "panel-body" }],
   ]);
 });

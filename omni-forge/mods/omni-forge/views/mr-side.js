@@ -12,11 +12,11 @@ import { MrList } from "./mr-list.js";
 import { button, busyState, errorState } from "./ui.js";
 
 const TICK_MS = 1000;
-const TAB_NAME = "MRs";
+const TAB_NAME = "PRs";
 
 export class MrSideView extends RepoView {
   init(_given, cx) {
-    this.initRepo("mrs", { placeholder: "Filter MRs" });
+    this.initRepo("mrs", { placeholder: "Filter PRs" });
     this.mrList = new MrList(this);
     cx.timer.every(TICK_MS, (cx) => this.tick(cx));
   }
@@ -73,7 +73,7 @@ export class MrSideView extends RepoView {
   render(_cx) {
     const t = theme();
     const header = h_flex().h(36).flex_none().px(12).gap(8).items_center().border_b_1().border_color(t.border)
-      .child(div().flex_none().font_semibold().child("MRs"))
+      .child(div().flex_none().font_semibold().child("PRs"))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(this.repo?.path ?? ""))
       .child(button(t, "mrs-full", "⤢ Full", () => this.openFull()))
       .child(button(t, "mrs-refresh", "⟳", (cx) => this.refresh(cx), { busy: this.mrList.busy || this.detecting }));
@@ -81,7 +81,7 @@ export class MrSideView extends RepoView {
     if (!this.repo) {
       body = this.repoError
         ? errorState(t, "mrs-repo-retry", this.repoError, (cx) => this.refresh(cx))
-        : busyState(t, "Looking for a repository…", "MRs follow the focused terminal.");
+        : busyState(t, "Looking for a repository…", "PRs follow the focused terminal.");
     } else {
       body = this.mrList.render(t, { compact: true, ids: "mrs", onOpen: (m) => this.openInFull(m), onNew: () => this.newMr() });
     }

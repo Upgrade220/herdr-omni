@@ -399,3 +399,24 @@ test("a pipeline pill without a run opens the MR in the browser; with a run it o
   assert.deepEqual(runs, ["9"]);
   assert.equal(opened.length, 1);
 });
+
+test("resolved threads start folded, open ones unfolded; a click flips either", async () => {
+  const { page, cx } = await ready({ detail: withMr({}, [thread("d1"), thread("d2", { resolved: true })]) });
+  const [open, done] = page.data.threads;
+  assert.equal(page.folded(open), false);
+  assert.equal(page.folded(done), true);
+  page.toggleFold(cx, done);
+  page.toggleFold(cx, open);
+  assert.equal(page.folded(done), false);
+  assert.equal(page.folded(open), true);
+});
+
+test("noteMarkdown: links to the forge become absolute, images become links", () => {
+  const { mod } = setup();
+  const gl = { kind: "gitlab", host: "git.example.org", path: "group/app" };
+  assert.equal(mod.noteMarkdown("see [log](/uploads/ab/x.txt)", gl), "see [log](https://git.example.org/group/app/uploads/ab/x.txt)");
+  assert.equal(mod.noteMarkdown("[i](/group/other/-/issues/1)", gl), "[i](https://git.example.org/group/other/-/issues/1)");
+  assert.equal(mod.noteMarkdown("![shot](/uploads/ab/s.png)", gl), "[🖼 shot](https://git.example.org/group/app/uploads/ab/s.png)");
+  assert.equal(mod.noteMarkdown("![](https://e.org/a.png) and [x](https://e.org)", gl), "[🖼 image](https://e.org/a.png) and [x](https://e.org)");
+  assert.equal(mod.noteMarkdown("", gl), "");
+});

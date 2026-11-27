@@ -264,7 +264,7 @@ export class FullView extends RepoView {
     const inMrs = mrTab === "mrs" || mrTab === "mr";
     const loading = log ? log.busy : mrTab === "mrs" ? this.mrList.busy : mrTab === "mr" ? Boolean(this.mrPage?.loading) : this.detail ? this.detail.loading : this.listBusy || this.detecting;
     const header = h_flex().h(44).flex_none().px(14).gap(10).items_center().border_b_1().border_color(t.border)
-      .child(div().flex_none().font_semibold().child(inMrs ? "MRs" : "CI"))
+      .child(div().flex_none().font_semibold().child(inMrs ? "PRs" : "CI"))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(this.repo?.path ?? ""))
       .child(button(t, "full-refresh", "⟳ Refresh", (cx) => this.refresh(cx), { busy: loading }));
 

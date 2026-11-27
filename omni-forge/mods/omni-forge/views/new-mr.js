@@ -16,7 +16,7 @@ import { button, mono } from "./ui.js";
 
 const WIDTH = 520;
 const HEIGHT = 560;
-const TAB_NAME = "MRs";
+const TAB_NAME = "PRs";
 
 const errorText = (e) => [String(e?.message ?? e), e?.hint].filter(Boolean).join("\n");
 const firstLine = (s) => String(s ?? "").split("\n")[0].trim();
@@ -218,10 +218,10 @@ export class NewMrView {
     const source = this.loading ? "Reading the branch…" : this.detached ? "Detached HEAD" : this.branch ?? "";
     return v_flex().id("new-mr-root").size_full().min_h(0).p(16).gap(10).bg(t.background).text_color(t.foreground).text_size(13)
       .child(v_flex().flex_none().gap(2)
-        .child(div().font_semibold().text_size(15).child("New merge request"))
+        .child(div().font_semibold().text_size(15).child("New pull request"))
         .child(div().truncate().text_size(12).text_color(t.dim).child(this.repo?.path ?? "")))
       .child(this.field(t, "Source", div().flex_1().min_w(0).truncate().text_size(12).font_family(mono()).child(source)))
-      .when(this.detached, (e) => e.child(div().flex_none().text_size(12).text_color(t.ansi1).child("HEAD is detached. Check out a branch to open an MR.")))
+      .when(this.detached, (e) => e.child(div().flex_none().text_size(12).text_color(t.ansi1).child("HEAD is detached. Check out a branch to open a PR.")))
       .child(this.field(t, "Target", this.box(t, this.target)))
       .child(this.field(t, "Title", this.box(t, this.title)))
       .child(Textarea.new(this.description).id("new-mr-description").w_full().flex_1().min_h(90).px(10).py(8).rounded(8)
