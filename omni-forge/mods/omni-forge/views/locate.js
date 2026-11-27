@@ -3,7 +3,8 @@
 //
 // Source order (full view): props.open's repo, then shared("omni-forge.last-loc") (the last focused
 // terminal, recorded by every copy), then the focused terminal, then a terminal in the focused tab
-// or space. Once a location is set, only a focused terminal with a new cwd moves it.
+// or space. Once a location is set, only a focused terminal with a new cwd moves it. A full tab
+// counts only terminals of its own space (nextLoc's `space`).
 
 export const MOD = "omni-forge";
 export const LAST_LOC = "omni-forge.last-loc";
@@ -87,19 +88,41 @@ export function fallbackLoc({ focused, panes, spaces }) {
   return space?.folder ? locOf(space.folder, space.machine, null) : null;
 }
 
-// One step of following. `state` = { loc, seenTerm, lastLoc }: the current location (null at first),
-// the key of the terminal last seen focused, and shared last-loc. Returns
+// One step of following. `state` = { loc, seenTerm, lastLoc, space }: the current location (null at
+// first), the key of the terminal last seen focused, shared last-loc, and the space the view belongs
+// to (a full tab's; null for a view of no space, which follows every terminal). With a space, only
+// terminals of that space count: focus in another space neither moves the view nor seeds it, and
+// last-loc seeds it only when a terminal of the space is there. Returns
 // { move: loc | null (detect there), branch: string | null (the branch now, when at loc), seenTerm }.
-export function nextLoc({ loc, seenTerm, lastLoc }, snap) {
-  const term = terminalLoc(snap);
+export function nextLoc({ loc, seenTerm, lastLoc, space = null }, snap) {
+  const elsewhere = Boolean(space) && snap.focused?.space !== space;
+  const term = elsewhere ? null : terminalLoc(snap);
   const seen = term?.key ?? seenTerm ?? null;
   if (!loc) {
-    const first = (lastLoc?.cwd ? locOf(lastLoc.cwd, lastLoc.machine, lastLoc.branch) : null) ?? term ?? fallbackLoc(snap);
+    const last = lastLoc?.cwd && (!space || inSpace(lastLoc, space, snap)) ? locOf(lastLoc.cwd, lastLoc.machine, lastLoc.branch) : null;
+    const own = elsewhere ? { ...snap, focused: { space, tab: null } } : snap;
+    const first = last ?? term ?? fallbackLoc(own);
     return { move: first, branch: first?.branch ?? null, seenTerm: seen };
   }
   if (term && term.key !== seenTerm && term.key !== loc.key) return { move: term, branch: term.branch, seenTerm: seen };
   const branch = term && term.key === loc.key ? term.branch : null;
   return { move: null, branch, seenTerm: seen };
+}
+
+// Whether a terminal of `space` sits at `where`'s folder.
+function inSpace(where, space, { panes, spaces }) {
+  const tabs = new Set(((spaces ?? []).find((s) => s.id === space)?.tabs ?? []).map((t) => t.id));
+  return (panes ?? []).some((p) => p.terminal && p.cwd === where.cwd && tabs.has(p.tab));
+}
+
+// The space a full tab belongs to: its own tab's (`ownTab`, else the only full tab there is).
+// undefined while that can't be told (several full tabs, own one not seen yet): don't follow then.
+// null when there is no full tab at all.
+export function fullTabSpace(ownTab, { panes, spaces }) {
+  const tabs = fullTabs(panes);
+  const tab = ownTab ?? (tabs.length === 1 ? tabs[0] : null);
+  if (!tab) return tabs.length ? undefined : null;
+  return (spaces ?? []).find((s) => (s.tabs ?? []).some((t) => t.id === tab))?.id ?? null;
 }
 
 // The value to record in shared last-loc, or null when it shouldn't change.

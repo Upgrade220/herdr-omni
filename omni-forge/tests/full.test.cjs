@@ -11,7 +11,7 @@ const panes = [
 ];
 const focusOn = (pane, tab) => ({ space: "s1", tab, pane, terminal: panes.find((p) => p.pane === pane)?.terminal ?? null, cwd: panes.find((p) => p.pane === pane)?.cwd ?? null });
 
-function setup({ checking = false, given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes, realPage = false, opened: openedFiles = [] } = {}) {
+function setup({ spaces: spaceList = spaces, checking = false, given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes, realPage = false, opened: openedFiles = [] } = {}) {
   const env = { checking, pages: [], focus, shared: { ...shared }, detects: [], opened: [], panes: paneList, logs: [], logTicks: [], logRefreshes: [], drops: [], prunes: [] };
   const repoOf = (cwd) => ({ kind: "github", host: "github.com", path: `o/${cwd.split("/").pop()}`, url: "u" });
   class Detail {
@@ -40,7 +40,7 @@ function setup({ checking = false, given = {}, focus = focusOn("pf", "F"), share
     exec: () => {},
     focused: () => env.focus,
     panes: () => env.panes,
-    spaces: () => spaces,
+    spaces: () => spaceList,
     props: () => given,
     shared: (k) => env.shared[k],
     setShared: (k, v) => { env.shared[k] = v; },
@@ -487,4 +487,42 @@ test("New MR opens the dialog with the learned folder", async () => {
   await settle();
   view.newMr();
   assert.equal(env.dialogs[0].loc.cwd, "/w/repo-a");
+});
+
+// A second space with a terminal in repo-x: the full tab (in s1) must not follow it.
+const spaces2 = [...spaces, { id: "s2", machine: null, folder: "/x", tabs: [{ id: "X" }] }];
+const panes2 = [...panes, { pane: "px", terminal: "t9", tab: "X", cwd: "/w/repo-x", branch: "main" }];
+const focus2 = { space: "s2", tab: "X", pane: "px", terminal: "t9", cwd: "/w/repo-x" };
+
+test("a full tab doesn't follow a terminal focused in another space", async () => {
+  const { view, env, cx, settle } = setup({ spaces: spaces2, panes: panes2, focus: focusOn("pa", "A") });
+  view.follow(cx);
+  await settle();
+  env.focus = focus2;
+  view.follow(cx);
+  await settle();
+  assert.deepEqual(env.detects, ["/w/repo-a"]);
+  assert.equal(view.repo.path, "o/repo-a");
+  assert.equal(env.shared["omni-forge.last-loc"].cwd, "/w/repo-x"); // still recorded for the side views
+});
+
+test("a full tab opened straight from another space shows its own space's repo", async () => {
+  const { view, env, cx, settle } = setup({ spaces: spaces2, panes: panes2, focus: focusOn("pf", "F"), shared: { "omni-forge.last-loc": { cwd: "/w/repo-x", machine: null, branch: "main" } } });
+  view.follow(cx);
+  await settle();
+  assert.deepEqual(env.detects, ["/w/repo-a"]);
+});
+
+test("with two full tabs, a copy that doesn't know its tab yet doesn't follow", async () => {
+  const both = [...panes2, { pane: "pg", terminal: null, mod: "omni-forge", tab: "Y", cwd: null, branch: null }];
+  const withY = [spaces2[0], { ...spaces2[1], tabs: [{ id: "X" }, { id: "Y" }] }];
+  const { view, env, cx, settle } = setup({ spaces: withY, panes: both, focus: focus2 });
+  view.follow(cx);
+  await settle();
+  assert.deepEqual(env.detects, []);
+  env.focus = focusOn("pf", "F");
+  view.laidOut();
+  view.follow(cx);
+  await settle();
+  assert.deepEqual(env.detects, ["/w/repo-a"]);
 });

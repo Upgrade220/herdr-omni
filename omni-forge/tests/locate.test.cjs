@@ -206,3 +206,30 @@ test("mrKey carries cwd and machine when given; parseOpen reads them back", () =
   assert.deepEqual({ ...parseOpen(mrKey(repo, 3, { cwd: "/w/r", machine: "m1" })) }, { ...repo, mr: "3", cwd: "/w/r", machine: "m1" });
   assert.deepEqual({ ...parseOpen(mrKey(repo, 3, { cwd: "/w/r" })) }, { ...repo, mr: "3", cwd: "/w/r", machine: null });
 });
+
+// Two spaces: s1 holds the full tab F and terminals in repo-a and repo-b; s2 a terminal in repo-x.
+const two = {
+  spaces: [{ id: "s1", machine: null, folder: "/home/u", tabs: [{ id: "A" }, { id: "F" }] }, { id: "s2", machine: null, folder: "/x", tabs: [{ id: "X" }] }],
+  panes: [
+    { pane: "pa", terminal: "t1", tab: "A", cwd: "/w/repo-a", branch: "main" },
+    { pane: "pb", terminal: "t2", tab: "A", cwd: "/w/repo-b", branch: "dev" },
+    { pane: "pf", terminal: null, mod: "omni-forge", tab: "F", cwd: null, branch: null },
+    { pane: "px", terminal: "t9", tab: "X", cwd: "/w/repo-x", branch: "main" },
+  ],
+};
+const at2 = (pane, tab, space) => ({ ...two, focused: { space, tab, pane, terminal: two.panes.find((p) => p.pane === pane)?.terminal ?? null, cwd: two.panes.find((p) => p.pane === pane)?.cwd ?? null } });
+
+test("nextLoc with a space: a terminal focused in another space never moves it", () => {
+  const first = nextLoc({ loc: null, space: "s1" }, at2("pa", "A", "s1"));
+  assert.equal(first.move.cwd, "/w/repo-a");
+  const step = nextLoc({ loc: first.move, seenTerm: first.seenTerm, space: "s1" }, at2("px", "X", "s2"));
+  assert.equal(step.move, null);
+  assert.equal(nextLoc({ loc: first.move, seenTerm: step.seenTerm, space: "s1" }, at2("pb", "A", "s1")).move.cwd, "/w/repo-b");
+});
+
+test("nextLoc with a space: the first location ignores last-loc and focus from another space", () => {
+  const step = nextLoc({ loc: null, space: "s1", lastLoc: { cwd: "/w/repo-x", machine: null } }, at2("px", "X", "s2"));
+  assert.equal(step.move.cwd, "/w/repo-a");
+  const own = nextLoc({ loc: null, space: "s1", lastLoc: { cwd: "/w/repo-b", machine: null, branch: "dev" } }, at2("pf", "F", "s1"));
+  assert.equal(own.move.cwd, "/w/repo-b"); // last-loc in its own space still counts
+});

@@ -21,7 +21,7 @@ import { MrList } from "./mr-list.js";
 import { MrPage } from "./mr-page.js";
 import { Tabs } from "./tabs.js";
 import { followThemeCode } from "../code/theme-code.js";
-import { parseOpen, isVisible, mayTakeOpen, fullTabs, nextLoc, OPEN, LAST_LOC, RUNS_KEY, MRS_KEY } from "./locate.js";
+import { parseOpen, isVisible, mayTakeOpen, fullTabs, fullTabSpace, nextLoc, OPEN, LAST_LOC, RUNS_KEY, MRS_KEY } from "./locate.js";
 import { RepoView, sameRepo } from "./repo.js";
 import { statusIcon, runPills, button, busyState, message, errorState, tabPill } from "./ui.js";
 
@@ -130,6 +130,11 @@ export class FullView extends RepoView {
     if (this.ownTab) return;
     const f = focused();
     if (f && fullTabs(panes()).includes(f.tab)) this.ownTab = f.tab;
+  }
+
+  // The tab's own space: it shows that space's repo, whatever is focused in other spaces.
+  followSpace(snap) {
+    return fullTabSpace(this.ownTab, snap);
   }
 
   visible() {
