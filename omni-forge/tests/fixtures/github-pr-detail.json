@@ -1,0 +1,14 @@
+{"data":{"viewer":{"login":"bob"},"repository":{"pullRequest":
+{"number":12,"title":"Add widget","body":"Adds the widget.","isDraft":false,"state":"OPEN","url":"https://github.com/acme/app/pull/12","updatedAt":"2026-01-03T10:00:00Z","headRefName":"feat-12","baseRefName":"main","author":{"login":"alice"},
+ "reviewRequests":{"nodes":[{"requestedReviewer":{"login":"bob"}}]},
+ "latestReviews":{"nodes":[{"state":"APPROVED","author":{"login":"carol"}}]},
+ "assignees":{"nodes":[{"login":"alice"}]},
+ "commits":{"nodes":[{"commit":{"oid":"sha12","statusCheckRollup":{"state":"PENDING"}}}]},
+ "comments":{"nodes":[{"databaseId":501,"author":{"login":"carol"},"body":"Looks fine overall","createdAt":"2026-01-01T09:00:00Z"}]},
+ "reviewThreads":{"nodes":[
+  {"id":"PRRT_aaa","isResolved":false,"path":"src/widget.js","line":7,"originalLine":6,"comments":{"nodes":[
+    {"databaseId":601,"author":{"login":"bob"},"body":"Why this?","createdAt":"2026-01-02T09:00:00Z","diffHunk":"@@ -5,2 +5,3 @@ fn\n a\n-b\n+c\n+d"},
+    {"databaseId":602,"author":{"login":"alice"},"body":"Because.","createdAt":"2026-01-02T10:00:00Z"}]}},
+  {"id":"PRRT_bbb","isResolved":true,"path":"src/old.js","line":null,"originalLine":3,"comments":{"nodes":[
+    {"databaseId":603,"author":{"login":"bob"},"body":"nit","createdAt":"2026-01-02T11:00:00Z"}]}}
+ ]}}}}}

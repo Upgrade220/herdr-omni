@@ -11,34 +11,52 @@ const panes = [
 ];
 const focusOn = (pane, tab) => ({ space: "s1", tab, pane, terminal: panes.find((p) => p.pane === pane)?.terminal ?? null, cwd: panes.find((p) => p.pane === pane)?.cwd ?? null });
 
-function setup({ given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes } = {}) {
-  const env = { focus, shared: { ...shared }, detects: [], opened: [], panes: paneList, logs: [], logTicks: [], logRefreshes: [] };
-  const repoOf = (cwd) => ({ kind: "github", host: "github.com", path: `o/${cwd.split("/").pop()}`, url: "" });
+function setup({ spaces: spaceList = spaces, checking = false, given = {}, focus = focusOn("pf", "F"), shared = {}, detect, panes: paneList = panes, realPage = false, opened: openedFiles = [] } = {}) {
+  const env = { checking, pages: [], focus, shared: { ...shared }, detects: [], opened: [], panes: paneList, logs: [], logTicks: [], logRefreshes: [], drops: [], prunes: [] };
+  const repoOf = (cwd) => ({ kind: "github", host: "github.com", path: `o/${cwd.split("/").pop()}`, url: "u" });
   class Detail {
     constructor(owner, runId) { this.runId = runId; env.opened.push(runId); }
     load() {}
+  }
+  class MrPage {
+    constructor(owner, number) { this.number = number; this.loading = false; env.pages.push(this); }
+    load() { this.loaded = (this.loaded ?? 0) + 1; }
+    render() { return null; }
+    dispose() { this.disposed = true; env.disposed = (env.disposed ?? 0) + 1; }
   }
   class LogView {
     initEmbedded(props) { this.props = props; env.logs.push(props.jobId); }
     tick() { env.logTicks.push(this.props.jobId); }
     refresh() { env.logRefreshes.push(this.props.jobId); }
   }
-  const { FullView } = load(["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/locate.js", "views/ui.js", "views/repo.js", "views/tabs.js", "views/full.js"], {
+  const files = ["ci/poller.js", "ci/watch.js", "forge/model.js", "views/runs.js", "views/locate.js", "views/mrs.js", "views/ui.js", "views/mr-list.js", "views/repo.js", "views/tabs.js"];
+  if (realPage) files.push("views/people.js", "code/syntax.js", "views/mr-page.js");
+  const { FullView } = load([...files, "views/full.js"], {
+    TextareaState: { new: () => ({ on() {}, value: () => "", set_value() {}, set_auto_grow() {} }) },
+    openMrFile: async (a) => { openedFiles.push(a); return { ok: true }; },
+    followThemeCode: (view) => { view.themeCode = null; },
+    openNewMrDialog: (a) => { env.dialogs = (env.dialogs ?? []).concat([a]); },
     InputState: { new: () => ({ on() {}, value: () => "", set_value() {} }) },
     exec: () => {},
     focused: () => env.focus,
     panes: () => env.panes,
-    spaces: () => spaces,
+    spaces: () => spaceList,
     props: () => given,
     shared: (k) => env.shared[k],
     setShared: (k, v) => { env.shared[k] = v; },
-    notify: () => {},
-    checking: () => false,
+    notify: (n) => { env.notices = (env.notices ?? []).concat([n]); },
+    checking: () => Boolean(env.checking),
     appWindow: () => ({ active: true }),
     detectRepo: async (cwd) => { env.detects.push(cwd); return detect ? detect(cwd) : repoOf(cwd); },
-    providerFor: (repo) => ({ repo, capabilities: {}, listRuns: async () => [] }),
+    providerFor: (repo) => ({ repo, capabilities: {}, listRuns: async () => [], mrDetail: async (n) => ({ mr: { number: n, title: "T" }, description: "", threads: [], files: [] }) }),
     Detail,
     LogView,
+    ...(realPage ? {} : { MrPage }),
+    appHome: () => "/app",
+    cacheRoot: (home) => `${home}/data/omni-forge/mr-cache`,
+    mrCacheDir: async ({ repo, machine }) => `/app/data/omni-forge/mr-cache/${repo.host}/${repo.path}.git`,
+    dropMr: async (_exec, a) => { env.drops.push({ dir: a.dir, number: a.number, on: a.on }); },
+    pruneStale: async (_exec, a) => { env.prunes.push(a.root); },
     WATCHABLE: new Set(["running", "pending", "manual"]),
   });
   const pending = [];
@@ -55,8 +73,9 @@ test("props.open wins: repo and run detail come from it, no detection", async ()
   assert.deepEqual(env.opened, ["12"]);
   view.follow(cx);
   await settle();
-  assert.deepEqual(env.detects, []);
-  assert.equal(view.repo.path, "g/p");
+  assert.deepEqual(env.detects, ["/w/repo-b"]); // last-loc is tried to learn a folder...
+  assert.equal(view.repo.path, "g/p"); // ...but it is another repo, so it is not taken
+  assert.equal(view.loc.cwd, null);
 });
 
 test("last-loc seeds a new tab", async () => {
@@ -148,7 +167,8 @@ test("shared open for another repo switches to it", async () => {
   await settle();
   assert.deepEqual({ ...view.repo }, { kind: "gitlab", host: "gl.test", path: "g/p" });
   assert.deepEqual(env.opened, ["9"]);
-  assert.deepEqual(env.detects, ["/w/repo-b"]);
+  assert.deepEqual(env.detects, ["/w/repo-b", "/w/repo-b"]); // the second tries last-loc as the folder: another repo, not taken
+  assert.equal(view.loc.cwd, null);
 });
 
 test("shared open: with two full tabs, only the copy that learned the asked tab takes it", async () => {
@@ -205,7 +225,7 @@ test("Log opens a log tab inside the view, and opening it again reuses the tab",
   view.openLog("12", job, cx);
   assert.equal(view.tabs.selected, `log:12:${job.id}`);
   assert.deepEqual(env.logs, [job.id]); // no second LogView
-  assert.equal(view.tabs.list.length, 3); // Runs, run:12, the log
+  assert.equal(view.tabs.list.length, 4); // Runs, MRs, run:12, the log
 });
 
 test("only the selected log tab polls; closing it drops its LogView", () => {
@@ -243,7 +263,7 @@ test("a repo change closes run and log tabs", async () => {
   env.shared["omni-forge.open"] = { tab: "F", key: '["github","github.com","o/other","9"]' };
   view.tick(cx);
   await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(view.tabs.list.map((t) => t.id))), ["runs", "run:9"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(view.tabs.list.map((t) => t.id))), ["runs", "mrs", "run:9"]);
   assert.equal(view.logs.size, 0);
   assert.deepEqual([...view.details.keys()], ["9"]);
 });
@@ -256,4 +276,253 @@ test("shared open with key runs selects the Runs tab", () => {
   assert.equal(view.tabs.selected, "runs");
   assert.equal(env.shared["omni-forge.open"], null);
   assert.ok(view.details.has("12")); // the run tab stays open
+});
+
+test("shared open with key mrs selects the MRs tab", () => {
+  const { view, env, cx } = opened();
+  env.shared["omni-forge.open"] = { tab: "F", key: "mrs" };
+  view.tick(cx);
+  assert.equal(view.tabs.selected, "mrs");
+  assert.equal(env.shared["omni-forge.open"], null);
+});
+
+test("shared open with an MR key opens that MR tab", () => {
+  const { view, env, cx } = opened();
+  env.shared["omni-forge.open"] = { tab: "F", key: JSON.stringify({ kind: "github", host: "github.com", path: "o/repo-a", mr: 5 }) };
+  view.tick(cx);
+  assert.equal(view.tabs.selected, "mr:5");
+  assert.equal(view.tabs.find("mr:5").kind, "mr");
+});
+
+test("props.open mrs starts on the MRs tab; an MR key for another repo switches repo", () => {
+  const a = setup({ given: { view: "full", open: "mrs" } });
+  assert.equal(a.view.tabs.selected, "mrs");
+  const b = setup({ given: { view: "full", open: JSON.stringify({ kind: "gitlab", host: "gl.test", path: "g/p", mr: 3 }) } });
+  assert.deepEqual({ ...b.view.repo }, { kind: "gitlab", host: "gl.test", path: "g/p" });
+  assert.equal(b.view.tabs.selected, "mr:3");
+});
+
+test("a repo change drops MR tabs and resets the MRs list", async () => {
+  const { view, env, cx, settle } = opened();
+  view.openMr("5", cx);
+  const old = view.mrList;
+  env.shared["omni-forge.open"] = { tab: "F", key: '["github","github.com","o/other","9"]' };
+  view.tick(cx);
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(view.tabs.list.map((t) => t.id))), ["runs", "mrs", "run:9"]);
+  assert.notEqual(view.mrList, old);
+});
+
+test("the MRs list polls only while the MRs tab is selected and visible", async () => {
+  const { view, env, cx, settle } = opened();
+  let loads = 0;
+  view.mrList.load = () => { loads++; };
+  view.tick(cx);
+  assert.equal(loads, 0); // a run tab is selected
+  view.selectTab("mrs", cx);
+  view.tick(cx);
+  assert.equal(loads, 1);
+  env.focus = focusOn("pa", "A"); // another tab: not visible
+  view.tick(cx);
+  assert.equal(loads, 1);
+});
+
+test("props.open mrs survives the first repo detection", async () => {
+  const { view, cx, settle } = setup({ given: { view: "full", open: "mrs" }, shared: { "omni-forge.last-loc": { cwd: "/w/repo-b", machine: null, branch: "dev" } } });
+  view.tick(cx);
+  await settle();
+  assert.equal(view.repo.path, "o/repo-b");
+  assert.equal(view.tabs.selected, "mrs");
+});
+
+test("Refresh on an MR item tab reloads that page, not a list", async () => {
+  const { view, env, cx } = opened();
+  view.openMr("5", cx);
+  let loads = 0;
+  view.loadList = () => { loads++; };
+  view.mrList.load = () => { loads++; };
+  const loaded = env.pages[0].loaded; // opening loads once
+  view.refresh(cx);
+  assert.equal(loads, 0);
+  assert.equal(env.pages[0].loaded, loaded + 1);
+});
+
+test("closing an MR tab drops its page; a repo change drops them all", async () => {
+  const { view, cx } = opened();
+  view.openMr("5", cx);
+  view.openMr("6", cx);
+  assert.deepEqual([...view.mrPages.keys()], ["5", "6"]);
+  view.closeTab("mr:5", cx);
+  assert.deepEqual([...view.mrPages.keys()], ["6"]);
+  view.repoChanged();
+  assert.equal(view.mrPages.size, 0);
+});
+
+test("an MR opened from props.open does not load its page while herdr-app checks", () => {
+  const key = JSON.stringify({ kind: "gitlab", host: "gl.test", path: "g/p", mr: 3 });
+  const checked = setup({ given: { view: "full", open: key }, checking: true });
+  assert.equal(checked.env.pages[0].loaded, undefined);
+  const live = setup({ given: { view: "full", open: key } });
+  assert.equal(live.env.pages[0].loaded, 1);
+});
+
+// ---- MR cache cleanup ----------------------------------------------------------
+
+test("closing the tab of a merged or closed MR drops its cache refs; an open MR keeps them", async () => {
+  const { view, env, cx, settle } = opened();
+  for (const [n, state] of [["5", "merged"], ["6", "closed"], ["7", "open"]]) {
+    view.openMr(n, cx);
+    env.pages.find((p) => p.number === n).data = { mr: { state } };
+    view.closeTab(`mr:${n}`, cx);
+  }
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(env.drops.map((d) => [d.number, d.dir]))), [
+    [5, "/app/data/omni-forge/mr-cache/gl.test/g/p.git"],
+    [6, "/app/data/omni-forge/mr-cache/gl.test/g/p.git"],
+  ]);
+});
+
+test("an MR page that never loaded drops nothing", async () => {
+  const { view, env, cx, settle } = opened();
+  view.openMr("5", cx);
+  view.closeTab("mr:5", cx);
+  await settle();
+  assert.deepEqual(env.drops, []);
+});
+
+test("another tab showing the same MR keeps the refs", async () => {
+  const { view, env, cx, settle } = opened();
+  view.openMr("5", cx);
+  env.pages[0].data = { mr: { state: "merged" } };
+  const tab = view.tabs.find("mr:5");
+  view.tabs.list.push({ ...tab, id: "mr:5:dup" }); // a second tab for the same MR
+  view.dropTab(tab);
+  await settle();
+  assert.deepEqual(env.drops, []);
+});
+
+test("eviction of a merged MR tab drops its refs too", async () => {
+  const { view, env, cx, settle } = opened();
+  view.openMr("1", cx);
+  env.pages[0].data = { mr: { state: "merged" } };
+  for (let i = 2; i <= 9; i++) view.openMr(String(i), cx);
+  await settle();
+  assert.deepEqual(env.drops.map((d) => d.number), [1]);
+});
+
+test("no cleanup while herdr-app checks", async () => {
+  const { view, env, cx, settle } = opened();
+  view.openMr("5", cx);
+  env.pages[0].data = { mr: { state: "merged" } };
+  env.checking = true;
+  view.closeTab("mr:5", cx);
+  view.tick(cx);
+  await settle();
+  assert.deepEqual(env.drops, []);
+  assert.deepEqual(env.prunes, []);
+});
+
+test("one copy prunes the local cache once; the other does not", async () => {
+  const a = setup({ given: { view: "full" } });
+  const shared = a.env.shared;
+  const b = setup({ given: { view: "full" } });
+  b.env.shared = shared;
+  a.view.tick(a.cx);
+  b.view.tick(b.cx);
+  await a.settle(); await b.settle();
+  assert.deepEqual(a.env.prunes, ["/app/data/omni-forge/mr-cache"]);
+  assert.deepEqual(b.env.prunes, []);
+  assert.equal(shared["omni-forge.prune-owner"].id, a.view.id);
+  a.view.claimAt = 0; a.view.pruneClaimAt = 0;
+  a.view.tick(a.cx);
+  await a.settle();
+  assert.equal(a.env.prunes.length, 1); // the next prune is 24 h away
+  a.view.pruneAt = 0; a.view.pruneClaimAt = 0;
+  a.view.tick(a.cx);
+  await a.settle();
+  assert.equal(a.env.prunes.length, 2);
+});
+
+const mrKeyFor = (extra = {}) => JSON.stringify({ kind: "github", host: "github.com", path: "o/repo-a", mr: 5, ...extra });
+
+test("an MR key with cwd and machine seeds the location, so file clicks have a folder", async () => {
+  const opened = [];
+  const { view, env, cx, settle } = setup({ realPage: true, opened, focus: focusOn("pf", "F"), given: { view: "full", open: mrKeyFor({ cwd: "/w/repo-a", machine: "m1" }) } });
+  await settle();
+  assert.equal(view.loc.cwd, "/w/repo-a");
+  assert.equal(view.loc.machine, "m1");
+  assert.equal(view.repo.path, "o/repo-a");
+  await settle();
+  view.mrPage.data = { mr: { number: 5 } };
+  view.mrPage.openFile(cx, "a.js");
+  await settle();
+  assert.equal(opened[0].loc.cwd, "/w/repo-a");
+  assert.equal(opened[0].loc.machine, "m1");
+});
+
+test("an MR key without cwd takes the last focused terminal when it is the same repo", async () => {
+  const opened = [];
+  const { view, env, cx, settle } = setup({ realPage: true, opened, focus: focusOn("pf", "F"), shared: { "omni-forge.last-loc": { cwd: "/w/repo-a", machine: null, branch: "main" } }, given: { view: "full", open: mrKeyFor() } });
+  await settle();
+  assert.equal(view.loc.cwd, "/w/repo-a");
+  assert.equal(view.repo.url, "u"); // detection fills in the remote url
+  view.mrPage.data = { mr: { number: 5 } };
+  view.mrPage.openFile(cx, "a.js");
+  await settle();
+  assert.equal(opened[0].loc.cwd, "/w/repo-a");
+  assert.equal(opened[0].repo.url, "u");
+});
+
+test("an MR key without cwd and a last focused terminal in another repo leaves no folder; New MR says so", async () => {
+  const { view, env, cx, settle } = setup({ realPage: true, focus: focusOn("pf", "F"), shared: { "omni-forge.last-loc": { cwd: "/w/repo-b", machine: null } }, given: { view: "full", open: mrKeyFor() } });
+  await settle();
+  assert.equal(view.loc.cwd, null);
+  view.newMr();
+  assert.equal(env.dialogs, undefined);
+  assert.match(env.notices[0].body, /terminal/);
+});
+
+test("New MR opens the dialog with the learned folder", async () => {
+  const { view, env, settle } = setup({ realPage: true, focus: focusOn("pf", "F"), given: { view: "full", open: mrKeyFor({ cwd: "/w/repo-a", machine: null }) } });
+  await settle();
+  view.newMr();
+  assert.equal(env.dialogs[0].loc.cwd, "/w/repo-a");
+});
+
+// A second space with a terminal in repo-x: the full tab (in s1) must not follow it.
+const spaces2 = [...spaces, { id: "s2", machine: null, folder: "/x", tabs: [{ id: "X" }] }];
+const panes2 = [...panes, { pane: "px", terminal: "t9", tab: "X", cwd: "/w/repo-x", branch: "main" }];
+const focus2 = { space: "s2", tab: "X", pane: "px", terminal: "t9", cwd: "/w/repo-x" };
+
+test("a full tab doesn't follow a terminal focused in another space", async () => {
+  const { view, env, cx, settle } = setup({ spaces: spaces2, panes: panes2, focus: focusOn("pa", "A") });
+  view.follow(cx);
+  await settle();
+  env.focus = focus2;
+  view.follow(cx);
+  await settle();
+  assert.deepEqual(env.detects, ["/w/repo-a"]);
+  assert.equal(view.repo.path, "o/repo-a");
+  assert.equal(env.shared["omni-forge.last-loc"].cwd, "/w/repo-x"); // still recorded for the side views
+});
+
+test("a full tab opened straight from another space shows its own space's repo", async () => {
+  const { view, env, cx, settle } = setup({ spaces: spaces2, panes: panes2, focus: focusOn("pf", "F"), shared: { "omni-forge.last-loc": { cwd: "/w/repo-x", machine: null, branch: "main" } } });
+  view.follow(cx);
+  await settle();
+  assert.deepEqual(env.detects, ["/w/repo-a"]);
+});
+
+test("with two full tabs, a copy that doesn't know its tab yet doesn't follow", async () => {
+  const both = [...panes2, { pane: "pg", terminal: null, mod: "omni-forge", tab: "Y", cwd: null, branch: null }];
+  const withY = [spaces2[0], { ...spaces2[1], tabs: [{ id: "X" }, { id: "Y" }] }];
+  const { view, env, cx, settle } = setup({ spaces: withY, panes: both, focus: focus2 });
+  view.follow(cx);
+  await settle();
+  assert.deepEqual(env.detects, []);
+  env.focus = focusOn("pf", "F");
+  view.laidOut();
+  view.follow(cx);
+  await settle();
+  assert.deepEqual(env.detects, ["/w/repo-a"]);
 });

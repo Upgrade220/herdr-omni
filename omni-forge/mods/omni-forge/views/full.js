@@ -8,13 +8,20 @@
 // isn't shown gets no layout, so the focused tab at that moment is the one showing it.
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, focused, panes, props, shared, setShared, checking, window as appWindow } from "herdr";
+import { theme, focused, panes, props, shared, setShared, notify, checking, exec, window as appWindow } from "herdr";
 import { watchKey } from "../ci/watch.js";
+import { detectRepo } from "../forge/detect.js";
+import { dropMr } from "../forge/mr-cache.js";
+import { mrCacheDir } from "../actions/diff.js";
 import { ago } from "./runs.js";
 import { Detail, WATCHABLE } from "./detail.js";
 import { LogView } from "./log.js";
+import { openNewMrDialog } from "./new-mr.js";
+import { MrList } from "./mr-list.js";
+import { MrPage } from "./mr-page.js";
 import { Tabs } from "./tabs.js";
-import { parseOpen, isVisible, mayTakeOpen, fullTabs, nextLoc, OPEN, RUNS_KEY } from "./locate.js";
+import { followThemeCode } from "../code/theme-code.js";
+import { parseOpen, isVisible, mayTakeOpen, fullTabs, fullTabSpace, nextLoc, OPEN, LAST_LOC, RUNS_KEY, MRS_KEY } from "./locate.js";
 import { RepoView, sameRepo } from "./repo.js";
 import { statusIcon, runPills, button, busyState, message, errorState, tabPill } from "./ui.js";
 
@@ -28,24 +35,40 @@ export class FullView extends RepoView {
     this.tabs = new Tabs();
     this.details = new Map(); // runId -> Detail, one per run tab
     this.logs = new Map(); // log tab id -> embedded LogView
+    this.mrPages = new Map(); // MR number (string) -> MrPage, one per MR tab
+    this.drops = []; // cache refs of closed or evicted merged/closed MR tabs, waiting for a cx
     this.tabs.onEvict = (tab) => this.dropTab(tab);
     this.ownTab = null;
-    // props.open names the repo and run: show them at once, without detection.
-    if (this.props.open) this.openKey(this.props.open, cx, { load: !checking() });
+    this.mrList = new MrList(this);
+    followThemeCode(this, cx); // this.themeCode: the shown theme's code colours, for MR pages' code
+    // props.open names the repo and run or MR: show them at once, without detection.
+    if (this.props.open === MRS_KEY) this.tabs.select("mrs");
+    else if (this.props.open) this.openKey(this.props.open, cx, { load: !checking() });
     cx.timer.every(TICK_MS, (cx) => this.tick(cx));
   }
 
   // Run and log tabs belong to the repo they were opened in.
   repoChanged() {
+    const keepMrs = this.tabs.selected === "mrs"; // a fixed tab survives a repo change
     this.tabs.reset();
+    if (keepMrs) this.tabs.select("mrs");
     this.details.clear();
     this.logs.clear();
+    for (const page of this.mrPages.values()) page.dispose();
+    this.mrPages.clear();
+    this.mrList = new MrList(this); // the gen bump in resetList drops the old one's answer
   }
 
   // The selected run tab's Detail, or null on Runs or a log tab.
   get detail() {
     const tab = this.tabs.find(this.tabs.selected);
     return tab?.kind === "run" ? this.details.get(tab.runId) ?? null : null;
+  }
+
+  // The selected MR tab's page, or null elsewhere.
+  get mrPage() {
+    const tab = this.tabs.find(this.tabs.selected);
+    return tab?.kind === "mr" ? this.mrPages.get(tab.number) ?? null : null;
   }
 
   selectedLog() {
@@ -64,8 +87,42 @@ export class FullView extends RepoView {
       this.branch = null;
       this.loc = { key: `open|${open.kind}|${open.host}|${open.path}`, cwd: null, machine: null, branch: null };
       this.seenTerm = nextLoc({ loc: this.loc, seenTerm: null, lastLoc: null }, this.snap()).seenTerm;
+      this.seedFolder(open, cx);
     }
-    this.openRun({ id: open.runId }, cx, { load });
+    if (open.mr != null) this.openMr(open.mr, cx, undefined, { load });
+    else this.openRun({ id: open.runId }, cx, { load });
+  }
+
+  // An opened repo has no folder yet: take the key's cwd/machine (the sender's), else the last
+  // focused terminal (shared last-loc). Detection confirms the folder belongs to the repo and
+  // picks up its remote url; a folder of another repo is dropped. Without any, files and New MR
+  // have no folder until the user says so (they tell them).
+  seedFolder(open, cx) {
+    const last = shared(LAST_LOC);
+    const from = open.cwd ? open : last?.cwd ? last : null;
+    if (!from || checking()) return;
+    const seed = { key: `${from.machine ?? ""}|${from.cwd}`, cwd: from.cwd, machine: from.machine ?? null, branch: open.cwd ? null : (last?.branch ?? null) };
+    const before = this.loc;
+    cx.spawn(async (cx) => {
+      try {
+        const res = await detectRepo(seed.cwd, seed.machine, exec);
+        if (this.loc !== before || res.error || !sameRepo(res, this.repo)) return; // moved on, or another repo
+        this.loc = seed;
+        this.seenTerm = nextLoc({ loc: seed, seenTerm: null, lastLoc: null }, this.snap()).seenTerm;
+        if (res.url && !this.repo.url) this.repo = { ...this.repo, url: res.url };
+        this.setBranch(seed.branch, cx);
+      } catch { /* no folder: the actions that need one say so */ }
+      cx.notify();
+    });
+  }
+
+  // Opens (or selects) the MR's tab and its page.
+  openMr(number, cx, title, { load = true } = {}) {
+    const tab = this.tabs.openMr({ number, title });
+    let page = this.mrPages.get(tab.number);
+    if (!page) { page = new MrPage(this, tab.number); this.mrPages.set(tab.number, page); if (load) page.load(cx); }
+    this.flushDrops(cx);
+    cx.notify();
   }
 
   // The root's first size report: this copy is on screen, so the focused tab, if a full tab, is ours.
@@ -73,6 +130,11 @@ export class FullView extends RepoView {
     if (this.ownTab) return;
     const f = focused();
     if (f && fullTabs(panes()).includes(f.tab)) this.ownTab = f.tab;
+  }
+
+  // The tab's own space: it shows that space's repo, whatever is focused in other spaces.
+  followSpace(snap) {
+    return fullTabSpace(this.ownTab, snap);
   }
 
   visible() {
@@ -85,11 +147,14 @@ export class FullView extends RepoView {
     if (checking()) return;
     this.follow(cx);
     this.watchTick(cx);
+    this.pruneTick(cx);
+    this.flushDrops(cx);
     if (!this.visible()) return;
     const asked = shared(OPEN);
     if (asked && mayTakeOpen(asked, { focused: focused(), panes: panes(), ownTab: this.ownTab })) {
       setShared(OPEN, null);
       if (asked.key === RUNS_KEY) this.selectTab("runs", cx);
+      else if (asked.key === MRS_KEY) this.selectTab("mrs", cx);
       else this.openKey(asked.key, cx);
     }
     if (!this.provider) return;
@@ -97,6 +162,8 @@ export class FullView extends RepoView {
     const log = this.selectedLog();
     if (log) log.tick(cx, now);
     else if (this.detail) { if (now >= this.detail.nextAt) this.detail.load(cx); }
+    else if (this.tabs.selected === "mrs") { if (this.mrList.tickDue(now)) this.mrList.load(cx); }
+    else if (this.mrPage) { if (now >= this.mrPage.nextAt) this.mrPage.load(cx); }
     else if (this.tabs.selected === "runs" && now >= this.listAt) this.loadList(cx);
   }
 
@@ -113,6 +180,7 @@ export class FullView extends RepoView {
     }
     if (run.status && WATCHABLE.has(run.status)) this.watches.add(watchKey({ ...this.repo, runId: id }), run);
     if (load) detail.load(cx);
+    this.flushDrops(cx);
     cx.notify();
   }
 
@@ -131,12 +199,14 @@ export class FullView extends RepoView {
   selectTab(id, cx) {
     this.tabs.select(id);
     if (id === "runs") this.listAt = 0;
+    if (id === "mrs") this.mrList.at = 0;
     cx.notify();
   }
 
   closeTab(id, cx) {
     const tab = this.tabs.close(id);
     if (tab) this.dropTab(tab);
+    this.flushDrops(cx);
     cx.notify();
   }
 
@@ -144,6 +214,32 @@ export class FullView extends RepoView {
   dropTab(tab) {
     if (tab.kind === "run") this.details.delete(tab.runId);
     if (tab.kind === "log") this.logs.delete(tab.id);
+    if (tab.kind === "mr") {
+      const state = this.mrPages.get(tab.number)?.data?.mr?.state;
+      this.mrPages.get(tab.number)?.dispose();
+      this.mrPages.delete(tab.number);
+      this.dropMrCache(tab, state);
+    }
+  }
+
+  // A merged or closed MR no longer needs its refs in the cache repo; nothing else shows it.
+  dropMrCache(tab, state) {
+    if (state !== "merged" && state !== "closed") return;
+    if (!this.repo || this.tabs.list.some((t) => t.kind === "mr" && t.number === tab.number)) return;
+    this.drops.push({ repo: this.repo, machine: this.loc?.machine ?? null, number: Number(tab.number) });
+  }
+
+  // Runs the queued drops (fire and forget; no cx is kept, so the callers that have one flush).
+  flushDrops(cx) {
+    if (checking()) return;
+    for (const { repo, machine, number } of this.drops.splice(0)) {
+      cx.spawn(async () => {
+        try {
+          const dir = await mrCacheDir({ repo, machine });
+          await dropMr(exec, { on: machine ?? undefined, dir, number });
+        } catch { /* the cache is only a convenience */ }
+      });
+    }
   }
 
   back(cx) {
@@ -154,18 +250,28 @@ export class FullView extends RepoView {
     if (this.retryRepo(cx)) return;
     const log = this.selectedLog();
     if (log) log.refresh(cx);
+    else if (this.tabs.selected === "mrs") this.mrList.load(cx);
+    else if (this.mrPage) this.mrPage.load(cx);
     else if (this.detail) this.detail.load(cx);
     else this.loadList(cx);
   }
 
   // ---- render --------------------------------------------------------------------
 
+  newMr() {
+    if (!this.repo) return;
+    if (!this.loc?.cwd) { notify({ title: "No folder to run git in", body: "Focus a terminal in the repository first.", level: "warning" }); return; }
+    openNewMrDialog({ repo: this.repo, loc: this.loc });
+  }
+
   render(_cx) {
     const t = theme();
     const log = this.selectedLog();
-    const loading = log ? log.busy : this.detail ? this.detail.loading : this.listBusy || this.detecting;
+    const mrTab = this.tabs.find(this.tabs.selected)?.kind;
+    const inMrs = mrTab === "mrs" || mrTab === "mr";
+    const loading = log ? log.busy : mrTab === "mrs" ? this.mrList.busy : mrTab === "mr" ? Boolean(this.mrPage?.loading) : this.detail ? this.detail.loading : this.listBusy || this.detecting;
     const header = h_flex().h(44).flex_none().px(14).gap(10).items_center().border_b_1().border_color(t.border)
-      .child(div().flex_none().font_semibold().child("CI"))
+      .child(div().flex_none().font_semibold().child(inMrs ? "PRs" : "CI"))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(this.repo?.path ?? ""))
       .child(button(t, "full-refresh", "⟳ Refresh", (cx) => this.refresh(cx), { busy: loading }));
 
@@ -176,6 +282,10 @@ export class FullView extends RepoView {
         : busyState(t, "Looking for a repository…", "CI follows the focused terminal.");
     } else if (log) {
       body = v_flex().flex_1().min_h(0).child(log.render(_cx));
+    } else if (mrTab === "mrs") {
+      body = this.mrList.render(t, { ids: "fmr", onOpen: (m, cx) => this.openMr(m.number, cx, m.title), onNew: () => this.newMr() });
+    } else if (mrTab === "mr") {
+      body = this.mrPage ? this.mrPage.render(t) : busyState(t, "Loading…");
     } else if (this.detail) {
       body = this.detail.render(t);
     } else {
@@ -198,7 +308,7 @@ export class FullView extends RepoView {
           .when(Boolean(tab.status), (e) => e.child(statusIcon(t, tab.status, 12)))
           .child(div().min_w(0).truncate().child(tab.kind === "log" ? `${tab.label} · log` : tab.label));
         const pill = tabPill(t, `ftab-${i}`, label, active, (cx) => this.selectTab(tab.id, cx));
-        if (tab.kind === "runs") return pill;
+        if (tab.kind === "runs" || tab.kind === "mrs") return pill;
         return pill.child(div().id(`ftab-close-${i}`).flex_none().px(2).rounded(4).text_color(t.dim)
           .hover((s) => s.bg(t.hover).text_color(t.foreground))
           .on_click((_e, cx) => { cx.stop_propagation(); this.closeTab(tab.id, cx); })

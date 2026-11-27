@@ -136,7 +136,7 @@ test("actions hit the right endpoints", async () => {
 test("playJob is unsupported; capabilities", async () => {
   const p = githubProvider(async () => ok(), repo);
   await assert.rejects(() => p.playJob("1"), (e) => e.message === "Not supported on GitHub");
-  assert.deepEqual({ ...p.capabilities }, { play: false, retryFailed: true, liveLog: false });
+  assert.deepEqual({ ...p.capabilities, mr: { ...p.capabilities.mr } }, { play: false, retryFailed: true, liveLog: false, mr: { revoke: false } });
 });
 
 test("non-github host uses --hostname and -R host/path", async () => {

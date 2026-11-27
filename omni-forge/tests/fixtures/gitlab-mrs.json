@@ -1,0 +1,80 @@
+{
+ "data": {
+  "currentUser": {
+   "username": "bob"
+  },
+  "project": {
+   "mergeRequests": {
+    "nodes": [
+     {
+      "iid": "12",
+      "title": "Add widget",
+      "draft": false,
+      "state": "opened",
+      "webUrl": "https://git.example.org/grp/app/-/merge_requests/12",
+      "updatedAt": "2026-01-03T10:00:00Z",
+      "sourceBranch": "feat-12",
+      "targetBranch": "main",
+      "diffHeadSha": "sha12",
+      "author": {
+       "username": "alice"
+      },
+      "approvedBy": {
+       "nodes": [
+        {
+         "username": "carol"
+        }
+       ]
+      },
+      "reviewers": {
+       "nodes": [
+        {
+         "username": "bob"
+        }
+       ]
+      },
+      "assignees": {
+       "nodes": [
+        {
+         "username": "alice"
+        }
+       ]
+      },
+      "headPipeline": {
+       "id": "gid://gitlab/Ci::Pipeline/1042",
+       "status": "MANUAL"
+      },
+      "resolvableDiscussionsCount": 4,
+      "resolvedDiscussionsCount": 1
+     },
+     {
+      "iid": "11",
+      "title": "Draft: Rework",
+      "draft": true,
+      "state": "opened",
+      "webUrl": "https://git.example.org/grp/app/-/merge_requests/11",
+      "updatedAt": "2026-01-02T10:00:00Z",
+      "sourceBranch": "feat-11",
+      "targetBranch": "main",
+      "diffHeadSha": "sha11",
+      "author": {
+       "username": "alice"
+      },
+      "approvedBy": {
+       "nodes": []
+      },
+      "reviewers": {
+       "nodes": []
+      },
+      "assignees": {
+       "nodes": []
+      },
+      "headPipeline": null,
+      "resolvableDiscussionsCount": 0,
+      "resolvedDiscussionsCount": 0
+     }
+    ]
+   }
+  }
+ }
+}

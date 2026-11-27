@@ -3,7 +3,8 @@
 //
 // Source order (full view): props.open's repo, then shared("omni-forge.last-loc") (the last focused
 // terminal, recorded by every copy), then the focused terminal, then a terminal in the focused tab
-// or space. Once a location is set, only a focused terminal with a new cwd moves it.
+// or space. Once a location is set, only a focused terminal with a new cwd moves it. A full tab
+// counts only terminals of its own space (nextLoc's `space`).
 
 export const MOD = "omni-forge";
 export const LAST_LOC = "omni-forge.last-loc";
@@ -11,10 +12,18 @@ export const LAST_LOC = "omni-forge.last-loc";
 // full copy takes it in its tick (mayTakeOpen).
 export const OPEN = "omni-forge.open";
 
-// props.open is a watch key: JSON [kind, host, path, runId].
+// props.open is a watch key, JSON [kind, host, path, runId], or an MR key (mrKey) with mr: n and,
+// optionally, the folder (and machine) the sender knows the repository at.
 export function parseOpen(value) {
   try {
-    const [kind, host, path, runId] = JSON.parse(value);
+    const v = JSON.parse(value);
+    if (v && !Array.isArray(v) && typeof v === "object") {
+      if (!(v.kind && v.host && v.path && v.mr != null)) return null;
+      const open = { kind: v.kind, host: v.host, path: v.path, mr: String(v.mr) };
+      if (typeof v.cwd === "string" && v.cwd) { open.cwd = v.cwd; open.machine = typeof v.machine === "string" && v.machine ? v.machine : null; }
+      return open;
+    }
+    const [kind, host, path, runId] = v;
     return kind && host && path && runId != null ? { kind, host, path, runId: String(runId) } : null;
   } catch {
     return null;
@@ -79,19 +88,41 @@ export function fallbackLoc({ focused, panes, spaces }) {
   return space?.folder ? locOf(space.folder, space.machine, null) : null;
 }
 
-// One step of following. `state` = { loc, seenTerm, lastLoc }: the current location (null at first),
-// the key of the terminal last seen focused, and shared last-loc. Returns
+// One step of following. `state` = { loc, seenTerm, lastLoc, space }: the current location (null at
+// first), the key of the terminal last seen focused, shared last-loc, and the space the view belongs
+// to (a full tab's; null for a view of no space, which follows every terminal). With a space, only
+// terminals of that space count: focus in another space neither moves the view nor seeds it, and
+// last-loc seeds it only when a terminal of the space is there. Returns
 // { move: loc | null (detect there), branch: string | null (the branch now, when at loc), seenTerm }.
-export function nextLoc({ loc, seenTerm, lastLoc }, snap) {
-  const term = terminalLoc(snap);
+export function nextLoc({ loc, seenTerm, lastLoc, space = null }, snap) {
+  const elsewhere = Boolean(space) && snap.focused?.space !== space;
+  const term = elsewhere ? null : terminalLoc(snap);
   const seen = term?.key ?? seenTerm ?? null;
   if (!loc) {
-    const first = (lastLoc?.cwd ? locOf(lastLoc.cwd, lastLoc.machine, lastLoc.branch) : null) ?? term ?? fallbackLoc(snap);
+    const last = lastLoc?.cwd && (!space || inSpace(lastLoc, space, snap)) ? locOf(lastLoc.cwd, lastLoc.machine, lastLoc.branch) : null;
+    const own = elsewhere ? { ...snap, focused: { space, tab: null } } : snap;
+    const first = last ?? term ?? fallbackLoc(own);
     return { move: first, branch: first?.branch ?? null, seenTerm: seen };
   }
   if (term && term.key !== seenTerm && term.key !== loc.key) return { move: term, branch: term.branch, seenTerm: seen };
   const branch = term && term.key === loc.key ? term.branch : null;
   return { move: null, branch, seenTerm: seen };
+}
+
+// Whether a terminal of `space` sits at `where`'s folder.
+function inSpace(where, space, { panes, spaces }) {
+  const tabs = new Set(((spaces ?? []).find((s) => s.id === space)?.tabs ?? []).map((t) => t.id));
+  return (panes ?? []).some((p) => p.terminal && p.cwd === where.cwd && tabs.has(p.tab));
+}
+
+// The space a full tab belongs to: its own tab's (`ownTab`, else the only full tab there is).
+// undefined while that can't be told (several full tabs, own one not seen yet): don't follow then.
+// null when there is no full tab at all.
+export function fullTabSpace(ownTab, { panes, spaces }) {
+  const tabs = fullTabs(panes);
+  const tab = ownTab ?? (tabs.length === 1 ? tabs[0] : null);
+  if (!tab) return tabs.length ? undefined : null;
+  return (spaces ?? []).find((s) => (s.tabs ?? []).some((t) => t.id === tab))?.id ?? null;
 }
 
 // The value to record in shared last-loc, or null when it shouldn't change.
@@ -106,8 +137,8 @@ export function lastLocUpdate(current, snap) {
 // Whether the layout shows an omni-forge side block (content.mod omni-forge, props.view "side" or
 // unset): neither it nor an ancestor is `hidden`, and every stack on the way has it on its active
 // child (`active`, else the first child). `tree` is layout().
-export function sideVisible(tree) {
-  const isSide = (n) => n?.type === "block" && n.content?.mod === MOD && (n.content.props?.view ?? "side") === "side";
+export function sideVisible(tree, view = "side") {
+  const isSide = (n) => n?.type === "block" && n.content?.mod === MOD && (n.content.props?.view ?? "side") === view;
   const walk = (node) => {
     if (!node || node.hidden) return false;
     if (isSide(node)) return true;
@@ -133,8 +164,8 @@ export function mayTakeOpen(asked, { focused, panes, ownTab }) {
 
 // The id to hide to close the side view's panel: the side block's nearest ancestor (or the block
 // itself) whose parent is a row, e.g. the right `panel` column holding a `panel-body` stack.
-export function sidePanelId(tree) {
-  const isSide = (n) => n?.type === "block" && n.content?.mod === MOD && (n.content.props?.view ?? "side") === "side";
+export function sidePanelId(tree, view = "side") {
+  const isSide = (n) => n?.type === "block" && n.content?.mod === MOD && (n.content.props?.view ?? "side") === view;
   const find = (node, path) => {
     if (!node) return null;
     if (isSide(node)) return [...path, node];
@@ -152,6 +183,13 @@ export function sidePanelId(tree) {
 
 // shared(OPEN).key asking the full view to show its Runs tab.
 export const RUNS_KEY = "runs";
+// ... selecting the MRs tab.
+export const MRS_KEY = "mrs";
+
+// The key asking the full view to open an MR's tab (parseOpen reads it back).
+// `loc` ({cwd, machine}) is the sender's folder: the full tab reads files and runs git there.
+export const mrKey = ({ kind, host, path }, n, loc) =>
+  JSON.stringify({ kind, host, path, mr: n, ...(loc?.cwd ? { cwd: loc.cwd, ...(loc.machine ? { machine: loc.machine } : {}) } : {}) });
 
 // What omni-forge's own Herdr tabs are called, and the icon the tab bars draw for them
 // (both bars read a mod tab's icon from shared("mod-icons")).

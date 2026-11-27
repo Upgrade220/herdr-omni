@@ -236,3 +236,43 @@ test("targetFromProps takes a well-formed target from a new Diff tab's props, el
   assert.equal(targetFromProps({ view: "diff" }), null);
   assert.equal(targetFromProps(null), null);
 });
+
+// ---- range source: base...head inside a separate cache git dir ----
+
+test("diffArgs for a range target puts --git-dir first and diffs base...head", () => {
+  const t = { source: "range", gitDir: "/c.git", base: "refs/omni-forge/mr/7/base", head: "refs/omni-forge/mr/7/head", path: "a.js" };
+  const tail = ["--no-color", "--no-ext-diff", "--no-textconv"];
+  assert.deepEqual(diffArgs(t), ["--git-dir=/c.git", "--literal-pathspecs", "diff", ...tail, "refs/omni-forge/mr/7/base...refs/omni-forge/mr/7/head", "--", "a.js"]);
+  assert.deepEqual(diffArgs(t, true), ["--git-dir=/c.git", "--literal-pathspecs", "diff", ...tail, "--unified=1000000", "refs/omni-forge/mr/7/base...refs/omni-forge/mr/7/head", "--", "a.js"]);
+});
+
+test("targetFromProps accepts a range target only with gitDir, base and head", () => {
+  const t = { root: "/r", path: "a.js", source: "range", gitDir: "/c.git", base: "b", head: "h" };
+  assert.deepEqual(targetFromProps({ target: t }), t);
+  for (const k of ["gitDir", "base", "head"]) assert.equal(targetFromProps({ target: { ...t, [k]: undefined } }), null);
+});
+
+test("scopeLabel of a range target is its label, else base...head", () => {
+  const t = { root: "/r", path: "a.js", source: "range", gitDir: "/c.git", base: "b", head: "h" };
+  assert.equal(scopeLabel({ ...t, label: "!7" }), "!7");
+  assert.equal(scopeLabel(t), "b...h");
+});
+
+test("a range diff reads from a bare cache that borrows the work repo's objects", async () => {
+  const { READ } = await import("../mods/git-graph/git.js");
+  const work = repo();
+  write(work, "a.js", "one\n");
+  const base = commit(work, "base");
+  write(work, "a.js", "one\ntwo\n");
+  const head = commit(work, "head");
+  const cache = mkdtempSync(join(tmpdir(), "herdr-cache-")) + "/c.git";
+  git(tmpdir(), ["init", "-q", "--bare", cache]);
+  write(cache, "objects/info/alternates", join(work, ".git/objects") + "\n");
+  git(cache, ["--git-dir=" + cache, "update-ref", "refs/omni-forge/mr/7/base", base]);
+  git(cache, ["--git-dir=" + cache, "update-ref", "refs/omni-forge/mr/7/head", head]);
+  const target = { root: work, path: "a.js", source: "range", gitDir: cache, base: "refs/omni-forge/mr/7/base", head: "refs/omni-forge/mr/7/head" };
+  const out = git(work, [...READ, ...diffArgs(target)]);
+  const { rows } = rowsFromDiff(out);
+  assert.ok(rows.some((r) => r.kind === "+" && r.text === "two"));
+  assert.equal(statusOf(target, out), "M");
+});

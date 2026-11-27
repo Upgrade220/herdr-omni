@@ -175,3 +175,61 @@ test("withModIcon adds omni-forge's icon once and keeps the others", () => {
   assert.equal(withModIcon(added), null); // already there: nothing to write
   assert.equal(withModIcon(undefined)["omni-forge"], "mods/omni-forge/icons/ci.svg");
 });
+
+test("mrKey and parseOpen round-trip; the array form is unchanged", () => {
+  const { mrKey, parseOpen, MRS_KEY } = load(["views/locate.js"]);
+  const key = mrKey({ kind: "gitlab", host: "git.example.org", path: "group/app", url: "x" }, 12);
+  assert.equal(key, '{"kind":"gitlab","host":"git.example.org","path":"group/app","mr":12}');
+  assert.deepEqual({ ...parseOpen(key) }, { kind: "gitlab", host: "git.example.org", path: "group/app", mr: "12" });
+  assert.deepEqual({ ...parseOpen('["gitlab","h","p","3"]') }, { kind: "gitlab", host: "h", path: "p", runId: "3" });
+  assert.equal(parseOpen('{"kind":"gitlab","host":"h","path":"p"}'), null);
+  assert.equal(MRS_KEY, "mrs");
+});
+
+test("sideVisible and sidePanelId take the view name", () => {
+  const { sideVisible, sidePanelId } = load(["views/locate.js"]);
+  const t = { id: "root", type: "row", children: [
+    { id: "main", type: "block", content: { tab: "active" } },
+    { id: "panel", type: "stack", children: [{ id: "mrs", type: "block", content: { mod: "omni-forge", props: { view: "mrs" } } }] },
+  ] };
+  assert.equal(sideVisible(t, "mrs"), true);
+  assert.equal(sideVisible(t), false);
+  assert.equal(sidePanelId(t, "mrs"), "panel");
+  assert.equal(sidePanelId(t), null);
+});
+
+test("mrKey carries cwd and machine when given; parseOpen reads them back", () => {
+  const { mrKey, parseOpen } = load(["views/locate.js"]);
+  const repo = { kind: "github", host: "github.com", path: "o/r" };
+  assert.equal(mrKey(repo, 3, { cwd: "/w/r", machine: "m1" }), '{"kind":"github","host":"github.com","path":"o/r","mr":3,"cwd":"/w/r","machine":"m1"}');
+  assert.equal(mrKey(repo, 3, { cwd: null, machine: null }), mrKey(repo, 3));
+  assert.deepEqual({ ...parseOpen(mrKey(repo, 3, { cwd: "/w/r", machine: "m1" })) }, { ...repo, mr: "3", cwd: "/w/r", machine: "m1" });
+  assert.deepEqual({ ...parseOpen(mrKey(repo, 3, { cwd: "/w/r" })) }, { ...repo, mr: "3", cwd: "/w/r", machine: null });
+});
+
+// Two spaces: s1 holds the full tab F and terminals in repo-a and repo-b; s2 a terminal in repo-x.
+const two = {
+  spaces: [{ id: "s1", machine: null, folder: "/home/u", tabs: [{ id: "A" }, { id: "F" }] }, { id: "s2", machine: null, folder: "/x", tabs: [{ id: "X" }] }],
+  panes: [
+    { pane: "pa", terminal: "t1", tab: "A", cwd: "/w/repo-a", branch: "main" },
+    { pane: "pb", terminal: "t2", tab: "A", cwd: "/w/repo-b", branch: "dev" },
+    { pane: "pf", terminal: null, mod: "omni-forge", tab: "F", cwd: null, branch: null },
+    { pane: "px", terminal: "t9", tab: "X", cwd: "/w/repo-x", branch: "main" },
+  ],
+};
+const at2 = (pane, tab, space) => ({ ...two, focused: { space, tab, pane, terminal: two.panes.find((p) => p.pane === pane)?.terminal ?? null, cwd: two.panes.find((p) => p.pane === pane)?.cwd ?? null } });
+
+test("nextLoc with a space: a terminal focused in another space never moves it", () => {
+  const first = nextLoc({ loc: null, space: "s1" }, at2("pa", "A", "s1"));
+  assert.equal(first.move.cwd, "/w/repo-a");
+  const step = nextLoc({ loc: first.move, seenTerm: first.seenTerm, space: "s1" }, at2("px", "X", "s2"));
+  assert.equal(step.move, null);
+  assert.equal(nextLoc({ loc: first.move, seenTerm: step.seenTerm, space: "s1" }, at2("pb", "A", "s1")).move.cwd, "/w/repo-b");
+});
+
+test("nextLoc with a space: the first location ignores last-loc and focus from another space", () => {
+  const step = nextLoc({ loc: null, space: "s1", lastLoc: { cwd: "/w/repo-x", machine: null } }, at2("px", "X", "s2"));
+  assert.equal(step.move.cwd, "/w/repo-a");
+  const own = nextLoc({ loc: null, space: "s1", lastLoc: { cwd: "/w/repo-b", machine: null, branch: "dev" } }, at2("pf", "F", "s1"));
+  assert.equal(own.move.cwd, "/w/repo-b"); // last-loc in its own space still counts
+});

@@ -30,6 +30,7 @@ export class SideView extends RepoView {
     if (checking()) return;
     this.follow(cx);
     this.watchTick(cx);
+    this.pruneTick(cx);
     if (this.provider && this.pollVisible() && Date.now() >= this.listAt) this.loadList(cx);
   }
 

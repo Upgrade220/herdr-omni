@@ -1,6 +1,7 @@
 // GitHub provider: REST through `gh api`, shell for logs and `gh run download`. Same interface as gitlabProvider.
 // RunDetail.groups is one group per job (the job holds its steps), so Job.group is the job name.
-import { cli, shell, tailText, ForgeError } from "./cli.js";
+import { cli, shell, tailText, ForgeError, hintFor } from "./cli.js";
+import { mrStateOf } from "./model.js";
 
 const RUNNING = { in_progress: "running", queued: "pending", waiting: "pending", requested: "pending", pending: "pending" };
 const CONCLUSION = {
@@ -16,6 +17,13 @@ function mapStatus(status, conclusion) {
   return RUNNING[status] ?? "other";
 }
 
+const ROLLUP = { SUCCESS: "success", FAILURE: "failed", ERROR: "failed", PENDING: "running", EXPECTED: "running" };
+const FILE_STATUS = { added: "added", removed: "deleted", modified: "modified", renamed: "renamed" };
+
+// reviewThreads(first: 100) is enough for the chips; PRs with more threads undercount.
+const PR_FIELDS = "number title isDraft state url updatedAt headRefName baseRefName author{login} reviewRequests(first: 20){nodes{requestedReviewer{... on User{login}}}} latestReviews(first: 30){nodes{state author{login}}} assignees(first: 20){nodes{login}} commits(last: 1){nodes{commit{oid statusCheckRollup{state}}}}";
+const nodes = (c) => c?.nodes ?? [];
+
 function seconds(from, to) {
   if (!from || !to) return null;
   const s = (Date.parse(to) - Date.parse(from)) / 1000;
@@ -28,6 +36,67 @@ export function githubProvider(exec, { host, path }) {
 
   const get = (endpoint) => cli(exec, "github", host, ["api", ...hostArgs, endpoint]);
   const post = (endpoint) => cli(exec, "github", host, ["api", ...hostArgs, "-X", "POST", endpoint], { raw: true });
+  const repoBase = `repos/${path}`;
+  const [owner, name] = path.split("/");
+  const prBase = (n) => `${repoBase}/pulls/${n}`;
+
+  // Strings go as -f, numbers and booleans as -F; arrays as key[]=value (an empty one is the bare key[]).
+  const fieldArgs = (fields) => Object.entries(fields).flatMap(([k, v]) =>
+    Array.isArray(v) ? (v.length ? v.flatMap((x) => ["-f", `${k}[]=${x}`]) : ["-f", `${k}[]`]) : typeof v === "string" ? ["-f", `${k}=${v}`] : ["-F", `${k}=${v}`]);
+  const rest = (endpoint, { method = "POST", fields = {} } = {}) =>
+    cli(exec, "github", host, ["api", ...hostArgs, "-X", method, endpoint, ...fieldArgs(fields)], { raw: true });
+
+  // One GraphQL call; transport and payload errors become ForgeError. Without `repo`, no owner/name variables.
+  const graphql = async (query, { repo = true } = {}) => {
+    const vars = repo ? ["-f", `owner=${owner}`, "-f", `name=${name}`] : [];
+    const res = await cli(exec, "github", host, ["api", ...hostArgs, "graphql", "-f", `query=${query}`, ...vars]);
+    if (res?.errors?.length) {
+      const msg = res.errors.map((e) => e.message).join("; ");
+      throw new ForgeError(msg, null, hintFor("github", host, msg, null));
+    }
+    return res?.data;
+  };
+  const notFound = (n) => new ForgeError(`Pull request ${n} not found`, 404, "Not found. Check the repository path and your access to it.");
+
+  const toMr = (p) => {
+    const approved = nodes(p.latestReviews).filter((r) => r.state === "APPROVED").map((r) => r.author?.login).filter(Boolean);
+    const requested = nodes(p.reviewRequests).map((r) => r.requestedReviewer?.login).filter(Boolean);
+    // The author's own COMMENTED review (a reply in a thread) doesn't make them a reviewer.
+    const reviewed = nodes(p.latestReviews).map((r) => r.author?.login).filter((l) => l && l !== p.author?.login);
+    const commit = nodes(p.commits)[0]?.commit;
+    const rollup = commit?.statusCheckRollup?.state;
+    return {
+      number: p.number,
+      title: p.title ?? "",
+      author: p.author?.login ?? "",
+      source: p.headRefName ?? "",
+      target: p.baseRefName ?? "",
+      draft: !!p.isDraft,
+      state: mrStateOf(p.state),
+      url: p.url ?? "",
+      updatedAt: p.updatedAt,
+      pipeline: rollup ? (ROLLUP[rollup] ?? "other") : null,
+      pipelineRunId: null, // filled by mrDetail from actions/runs
+      approvals: approved.length,
+      approvalsRequired: null, // branch protection is not read
+      approvedBy: approved,
+      reviewers: [...new Set([...requested, ...reviewed])],
+      assignees: nodes(p.assignees).map((u) => u.login),
+      unresolved: nodes(p.reviewThreads).filter((t) => !t.isResolved).length,
+      headSha: commit?.oid ?? "",
+    };
+  };
+
+  const toNote = (c) => ({ id: String(c.databaseId), author: c.author?.login ?? "", body: c.body ?? "", createdAt: c.createdAt, system: false });
+
+  // Applies `want` to a login list: POST the missing, DELETE the surplus, one call each, none when equal.
+  const syncLogins = async (endpoint, key, have, want) => {
+    const add = want.filter((u) => !have.includes(u));
+    const del = have.filter((u) => !want.includes(u));
+    if (add.length) await rest(endpoint, { fields: { [key]: add } });
+    if (del.length) await rest(endpoint, { method: "DELETE", fields: { [key]: del } });
+  };
+
   const sh = (script, args) => shell(exec, "github", host, script, args);
 
   const toRun = (r) => ({
@@ -62,7 +131,116 @@ export function githubProvider(exec, { host, path }) {
   });
 
   return {
-    capabilities: { play: false, retryFailed: true, liveLog: false },
+    capabilities: { play: false, retryFailed: true, liveLog: false, mr: { revoke: false } },
+
+    async listMrs() {
+      const q = `query($owner: String!, $name: String!){ viewer{login} repository(owner: $owner, name: $name){ pullRequests(states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}, first: 50){nodes{${PR_FIELDS} reviewThreads(first: 100){nodes{isResolved}}}} } }`;
+      const data = await graphql(q);
+      if (!data?.repository) throw new ForgeError("Repository not found", 404, "Not found. Check the repository path and your access to it.");
+      return { me: data.viewer?.login ?? "", mrs: nodes(data.repository.pullRequests).map(toMr) };
+    },
+
+    async mrDetail(number) {
+      const q = `query($owner: String!, $name: String!){ viewer{login} repository(owner: $owner, name: $name){ pullRequest(number: ${Number(number)}){ ${PR_FIELDS} body comments(last: 100){pageInfo{hasPreviousPage} nodes{databaseId author{login} body createdAt}} reviewThreads(last: 100){pageInfo{hasPreviousPage} nodes{id isResolved path line originalLine comments(first: 100){nodes{databaseId author{login} body createdAt diffHunk}}}} } } }`;
+      const data = await graphql(q);
+      const pr = data?.repository?.pullRequest;
+      if (!pr) throw notFound(number);
+      const mr = toMr(pr);
+      const [files, runs] = await Promise.all([
+        get(`${prBase(number)}/files?per_page=100`),
+        mr.headSha ? get(`${api}/runs?head_sha=${encodeURIComponent(mr.headSha)}&per_page=1`) : { workflow_runs: [] },
+      ]);
+      if (runs.workflow_runs?.[0]) mr.pipelineRunId = String(runs.workflow_runs[0].id);
+      // Issue comments have no replies or resolution on GitHub: one non-resolvable thread each.
+      const issue = nodes(pr.comments).map((c) => ({ id: `c:${c.databaseId}`, resolvable: false, resolved: false, path: null, line: null, notes: [toNote(c)] }));
+      // Thread id = "<graphql thread id>|<first comment database id>": resolve needs the first, reply the second.
+      const review = nodes(pr.reviewThreads).map((t) => ({
+        id: `${t.id}|${nodes(t.comments)[0]?.databaseId}`,
+        resolvable: true,
+        resolved: !!t.isResolved,
+        path: t.path ?? null,
+        line: t.line ?? t.originalLine ?? null,
+        notes: nodes(t.comments).map(toNote),
+        hunk: nodes(t.comments)[0]?.diffHunk ?? null, // the diff up to the commented line
+      }));
+      const threads = [...issue, ...review].sort((a, b) => String(a.notes[0]?.createdAt).localeCompare(String(b.notes[0]?.createdAt)));
+      mr.unresolved = review.filter((t) => !t.resolved).length;
+      // comments and reviewThreads are the newest 100; older ones are cut.
+      const olderThreads = Boolean(pr.comments?.pageInfo?.hasPreviousPage || pr.reviewThreads?.pageInfo?.hasPreviousPage);
+      return {
+        mr,
+        me: data.viewer?.login ?? "",
+        olderThreads,
+        description: pr.body ?? "",
+        threads,
+        files: files.map((f) => ({ path: f.filename, add: f.additions ?? 0, del: f.deletions ?? 0, status: FILE_STATUS[f.status] ?? "modified" })),
+      };
+    },
+
+    async approve(n) { await rest(`${prBase(n)}/reviews`, { fields: { event: "APPROVE" } }); },
+    async unapprove() { throw new ForgeError("GitHub has no revoke for an approval", null, ""); },
+    async comment(n, body) { await rest(`${repoBase}/issues/${n}/comments`, { fields: { body } }); },
+    async reply(n, threadId, body) {
+      const id = String(threadId);
+      // Issue comments are not threaded; a reply is a new comment.
+      if (id.startsWith("c:")) return this.comment(n, body);
+      await rest(`${prBase(n)}/comments/${id.split("|")[1]}/replies`, { fields: { body } });
+    },
+    async resolve(n, threadId, resolved) {
+      const id = String(threadId);
+      if (id.startsWith("c:")) throw new ForgeError("A plain comment cannot be resolved on GitHub", null, "");
+      const op = resolved ? "resolveReviewThread" : "unresolveReviewThread";
+      await graphql(`mutation{ ${op}(input:{threadId: ${JSON.stringify(id.split("|")[0])}}){ thread{ id } } }`, { repo: false });
+    },
+    async update(n, { title, description } = {}) {
+      const fields = {};
+      if (title !== undefined) fields.title = title;
+      if (description !== undefined) fields.body = description;
+      await rest(prBase(n), { method: "PATCH", fields });
+    },
+    async setDraft(n, draft) {
+      const pr = (await graphql(`query($owner: String!, $name: String!){ repository(owner: $owner, name: $name){ pullRequest(number: ${Number(n)}){ id } } }`))?.repository?.pullRequest;
+      if (!pr) throw notFound(n);
+      const op = draft ? "convertPullRequestToDraft" : "markPullRequestReadyForReview";
+      await graphql(`mutation{ ${op}(input:{pullRequestId: ${JSON.stringify(pr.id)}}){ pullRequest{ id } } }`, { repo: false });
+    },
+    async setReviewers(n, usernames) {
+      const endpoint = `${prBase(n)}/requested_reviewers`;
+      const requested = ((await get(endpoint)).users ?? []).map((u) => u.login);
+      const pr = (await graphql(`query($owner: String!, $name: String!){ repository(owner: $owner, name: $name){ pullRequest(number: ${Number(n)}){ author{login} latestReviews(first: 30){nodes{author{login}}} } } }`))?.repository?.pullRequest;
+      if (!pr) throw notFound(n);
+      // mr.reviewers shows requested plus already-reviewed logins, so the wanted list may hold both.
+      const reviewed = nodes(pr.latestReviews).map((r) => r.author?.login).filter((l) => l && l !== pr.author?.login);
+      const add = usernames.filter((u) => !requested.includes(u) && !reviewed.includes(u));
+      // Only a pending request can be withdrawn; GitHub cannot un-review, so a removed login that
+      // already reviewed (and is not requested again) is left alone.
+      const del = requested.filter((u) => !usernames.includes(u));
+      if (add.length) await rest(endpoint, { fields: { reviewers: add } });
+      if (del.length) await rest(endpoint, { method: "DELETE", fields: { reviewers: del } });
+    },
+    async setAssignees(n, usernames) {
+      const have = ((await get(`${repoBase}/issues/${n}`)).assignees ?? []).map((u) => u.login);
+      await syncLogins(`${repoBase}/issues/${n}/assignees`, "assignees", have, usernames);
+    },
+    async close(n) { await rest(prBase(n), { method: "PATCH", fields: { state: "closed" } }); },
+    async reopen(n) { await rest(prBase(n), { method: "PATCH", fields: { state: "open" } }); },
+
+    async createMr({ source, target, title, description, draft, reviewers = [] }) {
+      const fields = { head: source, base: target, title, body: description ?? "" };
+      if (draft) fields.draft = true;
+      const made = JSON.parse(await rest(`${repoBase}/pulls`, { fields }));
+      // The PR exists now: a failed reviewer request must not fail the call, or a retry would hit a duplicate PR.
+      if (reviewers.length) await rest(`${prBase(made.number)}/requested_reviewers`, { fields: { reviewers } }).catch(() => {});
+      return (await this.mrDetail(made.number)).mr;
+    },
+
+    async searchUsers(query) {
+      const q = String(query).toLowerCase();
+      const all = await get(`${repoBase}/collaborators?per_page=100`);
+      return all.filter((u) => u.login.toLowerCase().includes(q)).slice(0, 20).map((u) => ({ username: u.login, name: "" }));
+    },
+
+    async defaultBranch() { return (await get(repoBase)).default_branch ?? ""; },
 
     async listRuns({ branch = null, limit = 30 } = {}) {
       const b = branch ? `&branch=${encodeURIComponent(branch)}` : "";

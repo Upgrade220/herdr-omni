@@ -109,7 +109,8 @@ test("downloadArtifact writes a zip named after project, job and artifact", asyn
 });
 
 test("capabilities", () => {
-  assert.deepEqual({ ...gitlabProvider(async () => ({}), repo).capabilities }, { play: true, retryFailed: false, liveLog: true });
+  const c = gitlabProvider(async () => ({}), repo).capabilities;
+  assert.deepEqual({ ...c, mr: { ...c.mr } }, { play: true, retryFailed: false, liveLog: true, mr: { revoke: true } });
 });
 
 test("listRuns dedupes a branch pipeline that is also an MR pipeline and keeps request", async () => {
