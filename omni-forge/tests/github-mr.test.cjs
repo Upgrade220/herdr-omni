@@ -105,6 +105,8 @@ test("mrDetail: threads (review + issue comments), files, newest run id", async 
   assert.equal(t.notes.length, 2);
   assert.equal(t.notes[1].author, "alice");
   assert.equal(t.notes[1].id, "602");
+  assert.equal(t.hunk, "@@ -5,2 +5,3 @@ fn\n a\n-b\n+c\n+d");
+  assert.equal(c.hunk ?? null, null);
   assert.equal(d.threads[2].resolved, true);
   assert.equal(d.threads[2].line, 3);
   assert.deepEqual([...d.files.map((f) => ({ ...f }))], [

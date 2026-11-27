@@ -86,7 +86,25 @@ test("mrDetail keeps thread order, flags system notes, carries path/line", async
   assert.equal(d.threads[2].resolved, true);
   assert.equal(d.threads[2].path, null);
   assert.equal(d.threads[2].line, null);
+  assert.deepEqual({ ...d.threads[1].at }, { sha: "head1", path: "src/widget.js", line: 7, mark: "+" });
+  assert.equal(d.threads[2].at, null);
   assert.deepEqual({ ...d.files[0] }, { path: "src/widget.js", add: 10, del: 2, status: "modified" });
+});
+
+
+test("mrDetail asks for each position's diff refs", async () => {
+  const { exec, calls } = recorder(() => ok(fixture("gitlab-mr-detail.json")));
+  await gitlabProvider(exec, repo).mrDetail(12);
+  const q = calls[calls.length - 1].args.find((a) => a.startsWith("query="));
+  assert.ok(q.includes("diffRefs{baseSha headSha}"));
+  assert.equal(q.split("{").length, q.split("}").length, "braces balance");
+});
+
+test("fileAt reads one file at a commit, raw", async () => {
+  const { exec, calls } = recorder(() => ({ code: 0, stdout: "line1\nline2\n", stderr: "" }));
+  const text = await gitlabProvider(exec, repo).fileAt("head1", "src/a b.js");
+  assert.equal(text, "line1\nline2\n");
+  assert.ok(calls[calls.length - 1].args.includes("projects/grp%2Fapp/repository/files/src%2Fa%20b.js/raw?ref=head1"));
 });
 
 const callOf = (calls, i = 0) => {

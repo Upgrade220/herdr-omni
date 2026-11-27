@@ -93,7 +93,8 @@
            "newPath": "src/widget.js",
            "newLine": 7,
            "oldPath": "src/widget.js",
-           "oldLine": null
+           "oldLine": null,
+           "diffRefs": {"baseSha": "base1", "headSha": "head1"}
           }
          },
          {

@@ -35,7 +35,7 @@ function listQuery(branch, limit) {
 // unresolved = resolvableDiscussionsCount - resolvedDiscussionsCount: GitLab GraphQL exposes both
 // counts on MergeRequest, so the list needs no discussion nodes.
 const MR_FIELDS = "iid title draft state webUrl updatedAt sourceBranch targetBranch diffHeadSha author{username} approvedBy{nodes{username}} reviewers{nodes{username}} assignees{nodes{username}} headPipeline{id status} resolvableDiscussionsCount resolvedDiscussionsCount";
-const NOTE_FIELDS = "id author{username} body createdAt system position{newPath newLine oldPath oldLine}";
+const NOTE_FIELDS = "id author{username} body createdAt system position{newPath newLine oldPath oldLine diffRefs{baseSha headSha}}";
 const names = (c) => (c?.nodes ?? []).map((u) => u.username);
 
 // `glab auth status --hostname <host>` gates every GitLab call. It runs here, before the first
@@ -63,6 +63,18 @@ export function glabAuth(exec, host) {
     check.catch(() => { if (hosts.get(host) === check) hosts.delete(host); });
   }
   return check;
+}
+
+// Where a line comment's code is: the commit and path of the side it is on (new unless it is on a
+// removed line), its line there, and its mark ("+" added, "-" removed, " " unchanged).
+function atOf(pos) {
+  if (!pos) return null;
+  const isNew = pos.newLine != null;
+  const sha = isNew ? pos.diffRefs?.headSha : pos.diffRefs?.baseSha;
+  const path = isNew ? (pos.newPath ?? pos.oldPath) : (pos.oldPath ?? pos.newPath);
+  const line = num(isNew ? pos.newLine : pos.oldLine);
+  if (!sha || !path || line == null) return null;
+  return { sha, path, line, mark: isNew ? (pos.oldLine == null ? "+" : " ") : "-" };
 }
 
 export function gitlabProvider(exec, { host, path }) {
@@ -195,11 +207,18 @@ export function gitlabProvider(exec, { host, path }) {
             notes: (d.notes?.nodes ?? []).map((n) => ({ id: lastId(n.id), author: n.author?.username ?? "", body: n.body ?? "", createdAt: n.createdAt, system: !!n.system })),
             path: pos ? (pos.newPath ?? pos.oldPath ?? null) : null,
             line: pos ? (num(pos.newLine) ?? num(pos.oldLine)) : null,
+            at: atOf(pos),
           };
         }),
         // diffStats carries no change type, so every file is "modified".
         files: (m.diffStats ?? []).map((f) => ({ path: f.path, add: f.additions ?? 0, del: f.deletions ?? 0, status: "modified" })),
       };
+    },
+
+    // One file at a commit, as text (the code a line comment points at).
+    async fileAt(sha, file) {
+      await glabAuth(exec, host);
+      return cli(exec, "gitlab", host, ["api", "--hostname", host, `projects/${enc}/repository/files/${encodeURIComponent(file)}/raw?ref=${encodeURIComponent(sha)}`], { raw: true });
     },
 
     async approve(n) { await rest(`${mrBase(n)}/approve`); },

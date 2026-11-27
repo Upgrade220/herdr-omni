@@ -141,7 +141,7 @@ export function githubProvider(exec, { host, path }) {
     },
 
     async mrDetail(number) {
-      const q = `query($owner: String!, $name: String!){ viewer{login} repository(owner: $owner, name: $name){ pullRequest(number: ${Number(number)}){ ${PR_FIELDS} body comments(last: 100){pageInfo{hasPreviousPage} nodes{databaseId author{login} body createdAt}} reviewThreads(last: 100){pageInfo{hasPreviousPage} nodes{id isResolved path line originalLine comments(first: 100){nodes{databaseId author{login} body createdAt}}}} } } }`;
+      const q = `query($owner: String!, $name: String!){ viewer{login} repository(owner: $owner, name: $name){ pullRequest(number: ${Number(number)}){ ${PR_FIELDS} body comments(last: 100){pageInfo{hasPreviousPage} nodes{databaseId author{login} body createdAt}} reviewThreads(last: 100){pageInfo{hasPreviousPage} nodes{id isResolved path line originalLine comments(first: 100){nodes{databaseId author{login} body createdAt diffHunk}}}} } } }`;
       const data = await graphql(q);
       const pr = data?.repository?.pullRequest;
       if (!pr) throw notFound(number);
@@ -161,6 +161,7 @@ export function githubProvider(exec, { host, path }) {
         path: t.path ?? null,
         line: t.line ?? t.originalLine ?? null,
         notes: nodes(t.comments).map(toNote),
+        hunk: nodes(t.comments)[0]?.diffHunk ?? null, // the diff up to the commented line
       }));
       const threads = [...issue, ...review].sort((a, b) => String(a.notes[0]?.createdAt).localeCompare(String(b.notes[0]?.createdAt)));
       mr.unresolved = review.filter((t) => !t.resolved).length;

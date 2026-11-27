@@ -67,6 +67,37 @@ export function threadLabel(th) {
   return notes.length > 1 ? "Thread" : "Comment";
 }
 
+export const SNIPPET_LINES = 4;
+
+// The last `n` rows of a diff hunk (GitHub's diffHunk ends at the commented line): { no, mark, text },
+// `no` being the line's number on its own side.
+export function snippetFromHunk(hunk, n = SNIPPET_LINES) {
+  const lines = String(hunk ?? "").split("\n");
+  const head = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(lines[0] ?? "");
+  if (!head) return [];
+  let oldNo = Number(head[1]);
+  let newNo = Number(head[2]);
+  const rows = [];
+  for (const l of lines.slice(1)) {
+    if (l.startsWith("\\")) continue; // "\ No newline at end of file"
+    const mark = l[0] === "+" || l[0] === "-" ? l[0] : " ";
+    const text = l.slice(1);
+    if (mark === "-") rows.push({ no: oldNo++, mark, text });
+    else if (mark === "+") rows.push({ no: newNo++, mark, text });
+    else { rows.push({ no: newNo, mark, text }); oldNo++; newNo++; }
+  }
+  return rows.slice(-n);
+}
+
+// The `n` lines of a file ending at `line` (1-based); the commented line carries `mark`.
+export function snippetFromFile(text, line, mark = " ", n = SNIPPET_LINES) {
+  const lines = Array.isArray(text) ? text : String(text ?? "").split("\n");
+  if (!(line >= 1) || line > lines.length) return [];
+  const rows = [];
+  for (let no = Math.max(1, line - n + 1); no <= line; no++) rows.push({ no, mark: no === line ? mark : " ", text: lines[no - 1] });
+  return rows;
+}
+
 // A thread takes replies when it is resolvable, or is a GitHub comment thread (`c:` ids).
 const replyable = (th) => Boolean(th.resolvable) || String(th.id).startsWith("c:");
 
@@ -86,6 +117,9 @@ export class MrPage {
     this.again = false; // a write finished while a load was out: load once more
     this.editing = false;
     this.people = null; // { kind, picker, onSave, onCancel } while Reviewers / Assignees is open
+    this.files = new Map(); // "<sha>\0<path>" -> { lines } | { error } | { loading: true }: GitLab line comments' code
+    this.snippetRows = new Map(); // "<sha>\0<path>\0<line>\0<mark>" or the hunk -> rows, worked out once (render stays cheap)
+    this.filesOpen = true; // the FILES list at the bottom
     this.flipped = new Set(); // thread ids folded or unfolded against their default
     this.replyBoxes = new Map(); // thread id -> TextareaState, filled when data arrives
     this.commentBox = TextareaState.new({ placeholder: "Write a comment" });
@@ -111,6 +145,7 @@ export class MrPage {
         if (gen !== this.owner.gen || this.owner.mrPages.get(this.number) !== this) { current = false; return; }
         this.data = data;
         this.syncReplyBoxes();
+        this.loadSnippets(cx);
         this.error = null;
         this.errors = 0;
         this.owner.tabs?.setMr({ number: this.number, label: `${mrNumber(this.repo.kind, this.number)} ${data.mr.title ?? ""}`.trim() });
@@ -225,7 +260,54 @@ export class MrPage {
 
   toggleFold(cx, th) {
     if (this.flipped.has(th.id)) this.flipped.delete(th.id); else this.flipped.add(th.id);
+    this.loadSnippets(cx);
     cx.notify();
+  }
+
+  toggleFiles(cx) {
+    this.filesOpen = !this.filesOpen;
+    cx.notify();
+  }
+
+  // The code a line thread points at: { rows } | { loading } | { error }, or null (no code, or a
+  // GitLab file not read yet). GitHub threads carry their hunk; GitLab ones read the file at its commit.
+  snippet(th) {
+    const rows = (key, make) => {
+      let r = this.snippetRows.get(key);
+      if (!r) { r = make(); this.snippetRows.set(key, r); }
+      return { rows: r };
+    };
+    if (th.hunk) return rows(th.hunk, () => snippetFromHunk(th.hunk));
+    const at = th.at;
+    if (!at) return null;
+    const f = this.files.get(`${at.sha}\0${at.path}`);
+    if (!f) return null;
+    if (f.loading) return { loading: true };
+    if (f.error) return { error: f.error };
+    return rows(`${at.sha}\0${at.path}\0${at.line}\0${at.mark}`, () => snippetFromFile(f.lines, at.line, at.mark));
+  }
+
+  // Reads, one after another, the files of unfolded GitLab line threads not read yet (each commit and
+  // path once; a commit never changes, so nothing is read twice).
+  loadSnippets(cx) {
+    const want = [];
+    for (const th of discussion(this.data?.threads)) {
+      const at = th.at;
+      if (!at || th.hunk || this.folded(th)) continue;
+      const key = `${at.sha}\0${at.path}`;
+      if (this.files.has(key)) continue;
+      this.files.set(key, { loading: true });
+      want.push({ key, at });
+    }
+    const p = this.owner.provider;
+    if (!want.length || !p?.fileAt) { for (const w of want) this.files.delete(w.key); return; }
+    cx.spawn(async (cx) => {
+      for (const { key, at } of want) {
+        try { this.files.set(key, { lines: String(await p.fileAt(at.sha, at.path) ?? "").split("\n") }); }
+        catch (e) { this.files.set(key, { error: errorText(e) }); }
+        cx.notify();
+      }
+    });
   }
 
   toggleResolve(cx, th) {
@@ -359,8 +441,9 @@ export class MrPage {
           .child(button(t, "mr-older-web", "Open in browser", (cx) => cx.open_url(url)))))
         .child(this.commentForm(t))
         .when(Boolean(this.fileError), (e) => e.child(this.fileErrorBox(t, mr, url)))
-        .child(section(t, "FILES", files.length, t.muted))
-        .children(files.length ? files.map((f, i) => this.fileRow(t, f, i)) : [div().px(14).py(4).text_size(12).text_color(t.dim).child("No changed files.")]));
+        .child(div().id("mr-files-toggle").cursor_pointer().on_click((_e, cx) => this.toggleFiles(cx))
+          .child(section(t, `${this.filesOpen ? "▾" : "▸"} FILES`, files.length, t.muted)))
+        .when(this.filesOpen, (e) => e.children(files.length ? files.map((f, i) => this.fileRow(t, f, i)) : [div().px(14).py(4).text_size(12).text_color(t.dim).child("No changed files.")])));
   }
 
   actionBar(t, mr) {
@@ -482,11 +565,31 @@ export class MrPage {
       const first = String(root?.body ?? "").split("\n").find((l) => l.trim()) ?? "";
       return card.child(div().min_w(0).truncate().text_size(12).text_color(t.dim).child(`${root?.author ?? ""}: ${first}`));
     }
+    const code = this.snippet(th);
     return card
+      .when(Boolean(code), (e) => e.child(this.codeBox(t, code, i)))
       .when(Boolean(root), (e) => e.child(this.note(t, root, `mr-note-${i}-0`, now)))
       .when(replies.length > 0, (e) => e.child(v_flex().ml(8).pl(12).gap(12).border_l_2().border_color(t.border)
         .children(replies.map((n, j) => this.note(t, n, `mr-note-${i}-${j + 1}`, now)))))
       .when(this.replyBoxes.has(th.id), (e) => e.child(this.replyForm(t, th, i)));
+  }
+
+  // The lines a comment is on, like the forges show them: line numbers, +/− marks, the commented line
+  // (the last) highlighted. While the file is read, or when it can't be, one line says so.
+  codeBox(t, code, i) {
+    const frame = v_flex().id(`mr-code-${i}`).flex_none().py(4).rounded(6).bg(t.background).border_1().border_color(t.border);
+    if (code.loading) return frame.child(div().px(10).text_size(11).text_color(t.dim).child("Loading code…"));
+    if (code.error) return frame.child(div().px(10).min_w(0).truncate().text_size(11).text_color(t.dim).child(`Code not shown: ${code.error.split("\n")[0]}`));
+    if (!code.rows.length) return frame.child(div().px(10).text_size(11).text_color(t.dim).child("This line is no longer in the file."));
+    const last = code.rows.length - 1;
+    return frame.children(code.rows.map((r, k) => {
+      const color = r.mark === "+" ? t.ansi2 : r.mark === "-" ? t.ansi1 : t.dim;
+      return h_flex().id(`mr-code-${i}-${k}`).min_w(0).px(6).gap(8).text_size(12).font_family(mono())
+        .when(k === last, (e) => e.bg(t.hover))
+        .child(div().flex_none().w(36).text_color(t.dim).child(String(r.no)))
+        .child(div().flex_none().w(10).text_color(color).child(r.mark === " " ? "" : r.mark === "-" ? "−" : "+"))
+        .child(div().flex_1().min_w(0).truncate().text_color(r.mark === " " ? t.foreground : color).child(r.text.replace(/\t/g, "    ") || " "));
+    }));
   }
 
   replyForm(t, th, i) {

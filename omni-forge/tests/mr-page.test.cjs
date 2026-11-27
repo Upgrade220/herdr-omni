@@ -438,3 +438,63 @@ test("threadLabel: a line thread's file:line, a thread with replies, a lone comm
   assert.equal(mod.threadLabel({ notes: [n()] }), "Comment");
   assert.equal(mod.threadLabel({ notes: [n(true)] }), null);
 });
+
+test("snippetFromHunk: the last rows of a diff hunk with their line numbers", () => {
+  const { mod } = setup();
+  const rows = plain(mod.snippetFromHunk("@@ -5,3 +5,4 @@ fn x\n a\n-b\n+c\n+d\n e", 4));
+  assert.deepEqual(rows, [
+    { no: 6, mark: "-", text: "b" },
+    { no: 6, mark: "+", text: "c" },
+    { no: 7, mark: "+", text: "d" },
+    { no: 8, mark: " ", text: "e" },
+  ]);
+  assert.deepEqual(plain(mod.snippetFromHunk("", 4)), []);
+});
+
+test("snippetFromFile: the n lines ending at the commented one, which carries the mark", () => {
+  const { mod } = setup();
+  const text = "l1\nl2\nl3\nl4\nl5\n";
+  assert.deepEqual(plain(mod.snippetFromFile(text, 4, "+", 3)), [
+    { no: 2, mark: " ", text: "l2" },
+    { no: 3, mark: " ", text: "l3" },
+    { no: 4, mark: "+", text: "l4" },
+  ]);
+  assert.deepEqual(plain(mod.snippetFromFile(text, 1, " ", 3)), [{ no: 1, mark: " ", text: "l1" }]);
+  assert.deepEqual(plain(mod.snippetFromFile(text, 99, " ", 3)), []);
+});
+
+test("snippets: a GitLab line thread's file is read once per commit and path; folded threads wait", async () => {
+  const reads = [];
+  const at = (line) => ({ sha: "h1", path: "a.js", line, mark: "+" });
+  const { page, cx, settle } = await ready({
+    detail: withMr({}, [thread("d1", { path: "a.js", line: 2, at: at(2) }), thread("d2", { path: "a.js", line: 3, at: at(3) }), thread("d3", { path: "b.js", line: 1, resolved: true, at: { sha: "h1", path: "b.js", line: 1, mark: " " } })]),
+    provider: { fileAt: async (sha, path) => { reads.push([sha, path]); return "x1\ny2\nz3\n"; } },
+  });
+  await settle();
+  assert.deepEqual(reads, [["h1", "a.js"]]);
+  assert.deepEqual(plain(page.snippet(page.data.threads[0]).rows.map((r) => r.text)), ["x1", "y2"]);
+  assert.equal(page.snippet(page.data.threads[2]), null); // folded: not read yet
+  page.toggleFold(cx, page.data.threads[2]); await settle();
+  assert.deepEqual(reads, [["h1", "a.js"], ["h1", "b.js"]]);
+  page.load(cx); await settle();
+  assert.equal(reads.length, 2);
+});
+
+test("snippets: a failed read shows its error; GitHub threads use their hunk with no read", async () => {
+  const { page, settle } = await ready({
+    detail: withMr({}, [thread("d1", { path: "a.js", line: 2, at: { sha: "h1", path: "a.js", line: 2, mark: "+" } }), thread("t|1", { path: "c.js", line: 6, hunk: "@@ -5,1 +5,2 @@\n a\n+b" })]),
+    provider: { fileAt: async () => { throw new Error("404 File Not Found"); } },
+  });
+  await settle();
+  assert.match(page.snippet(page.data.threads[0]).error, /404/);
+  assert.deepEqual(plain(page.snippet(page.data.threads[1]).rows), [{ no: 5, mark: " ", text: "a" }, { no: 6, mark: "+", text: "b" }]);
+});
+
+test("the files list folds and unfolds", async () => {
+  const { page, cx } = await ready({ detail: withMr({}) });
+  assert.equal(page.filesOpen, true);
+  page.toggleFiles(cx);
+  assert.equal(page.filesOpen, false);
+  page.toggleFiles(cx);
+  assert.equal(page.filesOpen, true);
+});
