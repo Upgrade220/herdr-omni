@@ -523,3 +523,16 @@ test("code rows are worked out when data and files arrive, so render only reads 
   await settle();
   assert.equal(page.snippetRows.size, 2);
 });
+
+test("personColor: the same name always gets the same theme colour; names spread over the palette", () => {
+  const { mod } = setup();
+  const t = Object.fromEntries([...Array(16).keys()].map((i) => [`ansi${i}`, `#0000${String(i).padStart(2, "0")}`]));
+  const palette = new Set(mod.PERSON_COLORS.map((k) => t[k]));
+  assert.equal(mod.personColor("ann", t), mod.personColor("ann", t));
+  const names = ["ann", "bob", "carol", "dave", "erin", "frank", "grace", "heidi"];
+  const got = names.map((n) => mod.personColor(n, t));
+  assert.ok(got.every((c) => palette.has(c)));
+  assert.ok(new Set(got).size >= 5, `spread: ${new Set(got).size}`);
+  assert.equal(mod.tint("#11223344", "40"), "#11223340");
+  assert.equal(mod.tint("#112233", "40"), "#11223340");
+});

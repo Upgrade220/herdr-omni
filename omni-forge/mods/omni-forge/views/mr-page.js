@@ -127,6 +127,19 @@ export function withRuns(rows, path, lead = []) {
 // The key of a thread's code rows, or null for a thread without code.
 const snippetKey = (th) => (th.hunk ? `${th.path}\0${th.hunk}` : th.at ? `${th.at.sha}\0${th.at.path}\0${th.at.line}\0${th.at.mark}` : null);
 
+// The theme colours people are told apart by (no greys: black, white and their bright pairs).
+export const PERSON_COLORS = ["ansi1", "ansi2", "ansi3", "ansi4", "ansi5", "ansi6", "ansi9", "ansi10", "ansi11", "ansi12", "ansi13", "ansi14"];
+
+// A person's colour: the same name always gets the same one (FNV-1a hash of the name).
+export function personColor(name, t) {
+  let h = 0x811c9dc5;
+  for (const ch of String(name ?? "")) h = Math.imul(h ^ ch.codePointAt(0), 0x01000193) >>> 0;
+  return t[PERSON_COLORS[h % PERSON_COLORS.length]];
+}
+
+// A colour with another alpha ("#rrggbb" or "#rrggbbaa" in, "#rrggbb<alpha>" out).
+export const tint = (color, alpha) => `${String(color).slice(0, 7)}${alpha}`;
+
 // A thread takes replies when it is resolvable, or is a GitHub comment thread (`c:` ids).
 const replyable = (th) => Boolean(th.resolvable) || String(th.id).startsWith("c:");
 
@@ -563,10 +576,11 @@ export class MrPage {
   note(t, n, id, now) {
     if (n.system) return this.event(t, n, id, now, 0);
     const initial = String(n.author || "?").slice(0, 1).toUpperCase();
+    const hue = personColor(n.author, t);
     return v_flex().id(id).gap(4).min_w(0)
       .child(h_flex().gap(8).items_center()
-        .child(div().flex_none().size(18).rounded_full().bg(t.border).items_center().justify_center().flex()
-          .text_size(10).font_semibold().text_color(t.muted).child(initial))
+        .child(div().flex_none().size(18).rounded_full().bg(tint(hue, "33")).items_center().justify_center().flex()
+          .text_size(10).font_semibold().text_color(hue).child(initial))
         .child(div().text_size(12).font_semibold().text_color(t.accent).child(n.author || "?"))
         .child(div().text_size(11).text_color(t.dim).child(ago(n.createdAt, now))))
       .child(div().pl(26).child(this.markdown(t, `${id}-body`, n.body, t.foreground)));
