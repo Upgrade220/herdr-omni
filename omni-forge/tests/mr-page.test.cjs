@@ -536,3 +536,32 @@ test("personColor: the same name always gets the same theme colour; names spread
   assert.equal(mod.tint("#11223344", "40"), "#11223340");
   assert.equal(mod.tint("#112233", "40"), "#11223340");
 });
+
+const treeOf = (mod, paths, folded = new Set()) => plain(mod.fileTree(paths.map((path) => ({ path, add: 1, del: 0 })), folded))
+  .map((r) => `${"  ".repeat(r.depth)}${r.kind === "dir" ? `${r.name}/ (${r.count})` : r.name}`);
+
+test("fileTree: folders first, then files, nested by depth", () => {
+  const { mod } = setup();
+  assert.deepEqual(treeOf(mod, ["f.js", "a/e.js", "a/b/d.js", "a/b/c.js"]), [
+    "a/ (3)", "  b/ (2)", "    c.js", "    d.js", "  e.js", "f.js",
+  ]);
+});
+
+test("fileTree: a chain of single folders is one row; a folded folder hides what is in it", () => {
+  const { mod } = setup();
+  assert.deepEqual(treeOf(mod, ["src/main/x.js", "src/main/y.js", "z.md"]), ["src/main/ (2)", "  x.js", "  y.js", "z.md"]);
+  assert.deepEqual(treeOf(mod, ["a/e.js", "a/b/d.js", "f.js"], new Set(["a"])), ["a/ (2)", "f.js"]);
+  assert.deepEqual(treeOf(mod, ["a/e.js", "a/b/d.js", "f.js"], new Set(["a/b"])), ["a/ (2)", "  b/ (1)", "  e.js", "f.js"]);
+});
+
+test("files view: list by default, shared by the tab's pages; folders fold by path", async () => {
+  const { page, cx, owner } = await ready({ detail: withMr({}) });
+  assert.equal(page.filesView, "list");
+  page.setFilesView(cx, "tree");
+  assert.equal(owner.filesView, "tree");
+  assert.equal(page.filesView, "tree");
+  page.toggleDir(cx, "a/b");
+  assert.ok(page.foldedDirs.has("a/b"));
+  page.toggleDir(cx, "a/b");
+  assert.ok(!page.foldedDirs.has("a/b"));
+});

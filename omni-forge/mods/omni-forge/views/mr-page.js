@@ -127,6 +127,42 @@ export function withRuns(rows, path, lead = []) {
 // The key of a thread's code rows, or null for a thread without code.
 const snippetKey = (th) => (th.hunk ? `${th.path}\0${th.hunk}` : th.at ? `${th.at.sha}\0${th.at.path}\0${th.at.line}\0${th.at.mark}` : null);
 
+// The changed files as tree rows, GitHub-style: in each folder its folders first, then its files,
+// both by name; a chain of folders holding only one folder is one row ("src/main"). A folder whose
+// path is in `folded` hides what is in it. Rows: { kind: "dir", path, name, depth, count (files in
+// it) } and { kind: "file", file, name, depth }.
+export function fileTree(files, folded = new Set()) {
+  const root = { dirs: new Map(), files: [] };
+  for (const f of files ?? []) {
+    const parts = String(f.path).split("/");
+    let node = root;
+    for (const dir of parts.slice(0, -1)) {
+      if (!node.dirs.has(dir)) node.dirs.set(dir, { dirs: new Map(), files: [] });
+      node = node.dirs.get(dir);
+    }
+    node.files.push({ name: parts[parts.length - 1], file: f });
+  }
+  const count = (node) => node.files.length + [...node.dirs.values()].reduce((n, d) => n + count(d), 0);
+  const rows = [];
+  const walk = (node, prefix, depth) => {
+    for (const dir of [...node.dirs.keys()].sort()) {
+      let name = dir;
+      let child = node.dirs.get(dir);
+      while (child.files.length === 0 && child.dirs.size === 1) {
+        const [next, inner] = [...child.dirs][0];
+        name += `/${next}`;
+        child = inner;
+      }
+      const path = prefix + name;
+      rows.push({ kind: "dir", path, name, depth, count: count(child) });
+      if (!folded.has(path)) walk(child, `${path}/`, depth + 1);
+    }
+    for (const f of [...node.files].sort((a, b) => a.name.localeCompare(b.name))) rows.push({ kind: "file", file: f.file, name: f.name, depth });
+  };
+  walk(root, "", 0);
+  return rows;
+}
+
 // The theme colours people are told apart by (no greys: black, white and their bright pairs).
 export const PERSON_COLORS = ["ansi1", "ansi2", "ansi3", "ansi4", "ansi5", "ansi6", "ansi9", "ansi10", "ansi11", "ansi12", "ansi13", "ansi14"];
 
@@ -162,6 +198,7 @@ export class MrPage {
     this.files = new Map(); // "<sha>\0<path>" -> { lines } | { error } | { loading: true }: GitLab line comments' code
     this.snippetRows = new Map(); // "<sha>\0<path>\0<line>\0<mark>" or the hunk -> rows, worked out once (render stays cheap)
     this.filesOpen = true; // the FILES list at the bottom
+    this.foldedDirs = new Set(); // folder paths folded in the tree view
     this.flipped = new Set(); // thread ids folded or unfolded against their default
     this.replyBoxes = new Map(); // thread id -> TextareaState, filled when data arrives
     this.commentBox = TextareaState.new({ placeholder: "Write a comment" });
@@ -304,6 +341,19 @@ export class MrPage {
   toggleFold(cx, th) {
     if (this.flipped.has(th.id)) this.flipped.delete(th.id); else this.flipped.add(th.id);
     this.loadSnippets(cx);
+    cx.notify();
+  }
+
+  // "list" or "tree": the tab's choice, so every MR page in it shows files the same way.
+  get filesView() { return this.owner.filesView ?? "list"; }
+
+  setFilesView(cx, view) {
+    this.owner.filesView = view;
+    cx.notify();
+  }
+
+  toggleDir(cx, path) {
+    if (this.foldedDirs.has(path)) this.foldedDirs.delete(path); else this.foldedDirs.add(path);
     cx.notify();
   }
 
@@ -495,9 +545,9 @@ export class MrPage {
           .child(button(t, "mr-older-web", "Open in browser", (cx) => cx.open_url(url)))))
         .child(this.commentForm(t))
         .when(Boolean(this.fileError), (e) => e.child(this.fileErrorBox(t, mr, url)))
-        .child(div().id("mr-files-toggle").cursor_pointer().on_click((_e, cx) => this.toggleFiles(cx))
-          .child(section(t, `${this.filesOpen ? "▾" : "▸"} FILES`, files.length, t.muted)))
-        .when(this.filesOpen, (e) => e.children(files.length ? files.map((f, i) => this.fileRow(t, f, i)) : [div().px(14).py(4).text_size(12).text_color(t.dim).child("No changed files.")])));
+        .child(this.filesHeader(t, files.length))
+        .when(this.filesOpen, (e) => e.children(!files.length ? [div().px(14).py(4).text_size(12).text_color(t.dim).child("No changed files.")]
+          : this.filesView === "tree" ? fileTree(files, this.foldedDirs).map((r, i) => (r.kind === "dir" ? this.dirRow(t, r, i) : this.fileRow(t, r.file, i, r))) : files.map((f, i) => this.fileRow(t, f, i)))));
   }
 
   actionBar(t, mr) {
@@ -650,8 +700,10 @@ export class MrPage {
 
   codeRow(t, r, current, colors) {
     const color = r.mark === "+" ? t.ansi2 : r.mark === "-" ? t.ansi1 : t.dim;
-    return h_flex().w_full().h(CODE_ROW_H).min_w(0).px(6).gap(8).items_center().text_size(12).font_family(mono())
-        .when(current, (e) => e.bg(t.hover))
+    // Added and removed lines tinted as in the Diff tab; the commented line has an accent bar.
+    return h_flex().w_full().h(CODE_ROW_H).min_w(0).pl(4).pr(6).gap(8).items_center().text_size(12).font_family(mono())
+        .border_l_2().border_color(current ? t.accent : "#00000000")
+        .when(r.mark !== " ", (e) => e.bg(tint(color, "26")))
         .child(div().flex_none().w(36).text_color(t.dim).child(String(r.no)))
         .child(div().flex_none().w(10).text_color(color).child(r.mark === " " ? "" : r.mark === "-" ? "−" : "+"))
         .child(h_flex().flex_1().min_w(0).overflow_hidden()
@@ -669,11 +721,34 @@ export class MrPage {
         .when(Boolean(th.resolvable), (e) => e.child(button(t, `mr-resolve-${i}`, th.resolved ? "Unresolve" : "Resolve", (cx) => this.toggleResolve(cx, th), { disabled: off, busy: this.acting.has(`mr-resolve-${th.id}`) }))));
   }
 
-  fileRow(t, f, i) {
+  // FILES with its fold arrow (click) and, on the right, the List / Tree switch.
+  filesHeader(t, count) {
+    const choice = (view, label) => div().id(`mr-files-${view}`).px(8).py(2).rounded(5).cursor_pointer().text_size(11)
+      .bg(this.filesView === view ? t.hover : t.background).text_color(this.filesView === view ? t.foreground : t.dim)
+      .hover((s) => s.text_color(t.foreground))
+      .on_click((_e, cx) => this.setFilesView(cx, view)).child(label);
+    return h_flex().flex_none().w_full().pr(14).items_center()
+      .child(div().id("mr-files-toggle").flex_1().min_w(0).cursor_pointer().on_click((_e, cx) => this.toggleFiles(cx))
+        .child(section(t, `${this.filesOpen ? "▾" : "▸"} FILES`, count, t.muted)))
+      .child(h_flex().flex_none().pt(10).gap(2).child(choice("list", "List")).child(choice("tree", "Tree")));
+  }
+
+  // A folder of the tree view: click folds it.
+  dirRow(t, r, i) {
+    const folded = this.foldedDirs.has(r.path);
+    return h_flex().id(`mr-dir-${i}`).min_h(26).flex_none().pl(14 + r.depth * 16).pr(14).gap(6).items_center().cursor_pointer().hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => this.toggleDir(cx, r.path))
+      .child(div().flex_none().w(10).text_size(11).text_color(t.dim).child(folded ? "▸" : "▾"))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).font_family(mono()).text_color(t.muted).child(`${r.name}/`))
+      .child(div().flex_none().text_size(11).text_color(t.dim).child(String(r.count)));
+  }
+
+  // A changed file: its path in the list, its name (indented) in the tree.
+  fileRow(t, f, i, tree = null) {
     const busy = this.opening.has(f.path);
-    return h_flex().id(`mr-file-${i}`).min_h(28).flex_none().px(14).gap(8).items_center().cursor_pointer().hover((s) => s.bg(t.hover))
+    return h_flex().id(`mr-file-${i}`).min_h(tree ? 26 : 28).flex_none().pl(tree ? 30 + tree.depth * 16 : 14).pr(14).gap(8).items_center().cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => this.openFile(cx, f.path))
-      .child(div().flex_1().min_w(0).truncate().text_size(12).font_family(mono()).text_color(busy ? t.dim : t.foreground).child(f.path))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).font_family(mono()).text_color(busy ? t.dim : t.foreground).child(tree ? tree.name : f.path))
       .when(busy, (e) => e.child(svg(icon("spinner")).size(11).flex_none().text_color(t.dim).spin(900)))
       .child(div().flex_none().text_size(11).text_color(t.ansi2).child(`+${f.add ?? 0}`))
       .child(div().flex_none().text_size(11).text_color(t.ansi1).child(`−${f.del ?? 0}`));
